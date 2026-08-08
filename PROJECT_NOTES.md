@@ -10,47 +10,51 @@
 
 ## ০. সর্বশেষ অবস্থা (এই সেকশনটা প্রতিটা কাজের পর আপডেট হবে)
 
-**সর্বশেষ commit:** কোড রিভিউ থেকে পাওয়া ৪টা bug fix (নিচে দেখুন)
+**সর্বশেষ commit:** আরও ৩টা bug fix — এডিটর decoration crash risk,
+dead সেটিংস বাটন, এবং লগ আউট ফিচার না থাকা
 **তারিখ:** ২০২৬-০৮-০৮
-**অবস্থা:** এবার কোনো নির্দিষ্ট উপসর্গ ছাড়াই পুরো `app.js`, `js/api.js`,
-`js/tree.js`, `worker/worker.js` লাইন-বাই-লাইন রিভিউ করে কয়েকটা লুকানো
-bug পাওয়া গেছে এবং ঠিক করা হয়েছে। এগুলো তাৎক্ষণিকভাবে ইউজার-facing না
-হলেও নির্দিষ্ট পরিস্থিতিতে সমস্যা করত।
+**অবস্থা:** ইউজার "সব বাগ ঠিক করো" বলার পর পুরো কোডবেস (`app.js`,
+`js/api.js`, `js/tree.js`, `js/editor.js` সোর্স, `worker/worker.js`,
+`index.html`, `sw.js`) আবার সম্পূর্ণ রিভিউ করা হয়েছে। এই মুহূর্তে কোনো
+known bug pending নেই।
 
-**এই রিভিউতে যা পাওয়া ও ঠিক হয়েছে:**
-1. **`createFolder()` অদ্ভুতভাবে `.gitkeep` ফাইল এডিটরে খুলে ফেলত:**
-   আগের সেশনে `createFile()`-কে বলা হয়েছিল ফাইল তৈরি করার পরপরই সেটা
-   এডিটরে খুলে দিতে (race-condition fix)। কিন্তু `createFolder()`
-   internally `createFile(path/.gitkeep, "")` কল করে খালি ফোল্ডার
-   বানানোর কৌশল হিসেবে — ফলে "নতুন ফোল্ডার" বাটনে ক্লিক করলে ফোল্ডার
-   তো তৈরি হতোই, কিন্তু সাথে অদ্ভুতভাবে একটা `.gitkeep` ফাইল এডিটরে
-   খুলে যেত। সমাধান: `createFile()`-এ `openAfterCreate` প্যারামিটার
-   যোগ করা হয়েছে, `createFolder()` এখন `false` পাস করে।
-2. **`.gitkeep` ফাইল sidebar-এ ভুতুড়ে ফাইলের মতো দেখা যেত:** খালি
-   ফোল্ডার বানাতে GitHub-এ `.gitkeep` লাগে, কিন্তু এটা ইউজারকে দেখানোর
-   কথা না। `js/tree.js`-এর `sortedEntries()`-এ এখন `.gitkeep` filter
-   করে বাদ দেওয়া হয়।
-3. **সেভ করার সময় race condition (409 Conflict-এর ঝুঁকি):**
-   `saveCurrentFile()`-এ 300ms debounce ছিল, কিন্তু debounce শেষ হয়ে
-   `putFile()` in-flight থাকা অবস্থায় যদি ইউজার আরও টাইপ করত, তাহলে
-   দ্বিতীয় save পুরনো `sha` দিয়ে পাঠানো হতো — প্রথমটা ততক্ষণে commit
-   হয়ে sha বদলে গেলে GitHub থেকে 409 Conflict আসত এবং সেভ silently
-   ব্যর্থ হতো। সমাধান: `isSaving` flag আর `pendingSaveContent` queue
-   দিয়ে save call-গুলো সিরিয়ালাইজ করা হয়েছে — এখন save চলাকালীন নতুন
-   change এলে সেটা wait করে, চলমান save শেষ হওয়ার সাথে সাথেই
-   সর্বশেষ content দিয়ে পরের save শুরু হয়।
-4. **`fetchTree()` বড় repo-তে ফাইল silently miss করতে পারত:** GitHub-এর
-   recursive tree API অনেক বেশি ফাইল থাকলে `truncated: true` দিয়ে
-   রেসপন্স কেটে দেয় — আগে এটা চেক করা হতো না, তাই কিছু ফাইল sidebar-এ
-   না দেখালেও কোনো সতর্কতা আসত না। এখন `console.warn` দিয়ে অন্তত
-   ডেভেলপার কনসোলে জানানো হয় (বর্তমান vault ছোট, তাই এটা এখন সমস্যা না,
-   কিন্তু ভবিষ্যতে বড় হলে গুরুত্বপূর্ণ হয়ে উঠবে)।
+**এই রাউন্ডে যা পাওয়া ও ঠিক হয়েছে:**
+1. **এডিটর লাইভ-প্রিভিউ স্টাইলিং সাইলেন্টলি বন্ধ হয়ে যাওয়ার ঝুঁকি
+   (`js/editor.js`-এর `buildDecorations()`):** `Decoration.mark` আর
+   `Decoration.replace` একই exact range-এ (`Link` node আর তার ভেতরের
+   coincident `LinkMark`/`URL` child) থাকলে CodeMirror-এর `RangeSet`
+   এটাকে invalid ওভারল্যাপ হিসেবে গণ্য করে exception ছুঁড়তে পারে। এটা
+   আগে থেকে থাকা catch-all `try/catch`-এ ধরা পড়ে পুরো
+   `Decoration.none` রিটার্ন করত — মানে এডিটর কাজ করত (টাইপ করা যেত),
+   কিন্তু heading/bold/link ইত্যাদি কোনো ভিজ্যুয়াল স্টাইলিং আসত না,
+   কোনো error ছাড়াই। সমাধান: exact-range-এ ওভারল্যাপ করা `mark`
+   decoration বাদ দেওয়া হয়েছে যখন সেই একই range-এ একটা `replace`
+   decoration থাকে (`replace` জেতে, কারণ সেই টেক্সট আদৌ দেখা যাবে না)।
+   **এই ফিক্সের জন্য bundle পুনরায় জেনারেট করতে হয়েছে** —
+   `/home/claude/editor-build/editor-src.js` (readable source) থেকে
+   esbuild দিয়ে rebuild করে `js/editor.js`-এ কপি করা হয়েছে (bundle
+   regenerate করার প্রক্রিয়া সেকশন ৩.৫-এ আছে)।
+2. **"সেটিংস" বাটন dead ছিল:** `index.html`-এ `#btn-settings` বাটন
+   ছিল, কিন্তু `app.js`-এ এটার জন্য কোনো click listener ছিলই না —
+   ক্লিক করলে কিছুই হতো না। এখন এটাতে একটা ছোট settings modal খোলে
+   (vault info দেখায়)।
+3. **লগ আউট করার কোনো উপায় ছিল না:** `js/api.js`-এ `clearSession()`
+   ফাংশন থাকলেও পুরো অ্যাপে কোথাও এটা UI থেকে কল হতো না — session
+   token লগইনের পর localStorage-এ চিরকাল থেকে যেত, ইউজার ইচ্ছা করলেও
+   বের হতে পারতেন না। সমাধান: সেটিংস মোডালে "লগ আউট" বাটন যোগ করা
+   হয়েছে (confirm করার পর session clear করে reload করে)।
 
 **নোট করা কিন্তু ফিক্স করা হয়নি (security hardening, bug না):**
 `worker/worker.js`-এর `corsHeaders()`-এ `Origin` header না থাকলে `*`
 wildcard-এ fallback করে। Session token আলাদাভাবে verify হয় বলে এটা
 critical না, তবে ভবিষ্যতে নির্দিষ্ট origin allowlist করা ভালো অভ্যাস
 হবে (যেমন শুধু `mydian-tei.pages.dev`)।
+
+**এর আগের রাউন্ডে (গত commit) যা ঠিক হয়েছিল:**
+1. `createFolder()` অদ্ভুতভাবে `.gitkeep` ফাইল এডিটরে খুলে ফেলত
+2. `.gitkeep` ফাইল sidebar-এ ভুতুড়ে ফাইলের মতো দেখা যেত
+3. সেভ করার সময় race condition (409 Conflict-এর ঝুঁকি)
+4. `fetchTree()` বড় repo-তে ফাইল silently miss করতে পারত
 
 **এর আগে যা হয়েছিল (কালানুক্রমে, নতুন থেকে পুরনো):**
 1. এডিটর area zero-height CSS bug + createFile race condition ফিক্স

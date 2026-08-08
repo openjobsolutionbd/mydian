@@ -605,6 +605,12 @@ input {
 
 .btn-primary:hover { background: var(--accent-strong); }
 
+.btn-primary.danger {
+  background: #d9534f;
+  color: #fff;
+}
+.btn-primary.danger:hover { background: #c9433f; }
+
 /* ============ Mobile ============ */
 @media (max-width: 780px) {
   .mobile-only { display: flex; }

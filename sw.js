@@ -50,5 +50,7 @@ self.addEventListener("fetch", (event) => {
         .catch(() => caches.match(event.request))
     );
   }
-  // বাকি সব (GitHub API, CDN থেকে CodeMirror ইত্যাদি) — সবসময় network থেকে
+  // বাকি সব (GitHub API ইত্যাদি) — সবসময় network থেকে। js/editor.js এখন
+  // local bundle (আর কোনো CDN নির্ভরতা নেই), সেটাও network-first-এর বাইরে
+  // স্বাভাবিক browser HTTP cache দিয়ে সার্ভ হয়, যেটা যথেষ্ট নিরাপদ।
 });

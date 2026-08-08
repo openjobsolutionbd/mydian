@@ -41,6 +41,12 @@ const modalHint = el("modal-hint");
 const modalConfirm = el("modal-confirm");
 const modalCancel = el("modal-cancel");
 
+const btnSettings = el("btn-settings");
+const settingsModalOverlay = el("settings-modal-overlay");
+const settingsVaultInfo = el("settings-vault-info");
+const settingsClose = el("settings-close");
+const settingsLogout = el("settings-logout");
+
 // ---------- App state ----------
 let treeData = null;
 let expandedFolders = new Set(JSON.parse(localStorage.getItem("mydian_expanded") || "[]"));
@@ -627,6 +633,33 @@ function submitModal() {
   closeModal();
   if (action) action(value);
 }
+
+// ============================================================
+// Settings modal (vault info + logout)
+// ============================================================
+// আগে "সেটিংস" বাটনের কোনো click listener ছিল না (dead button), এবং
+// পুরো অ্যাপে লগ আউট করার কোনো উপায়ই ছিল না — সেশন টোকেন localStorage-এ
+// থেকে যেত, ইউজার চাইলেও বের হতে পারতেন না।
+
+btnSettings.addEventListener("click", () => {
+  const cfg = api.getConfig();
+  settingsVaultInfo.textContent = `Vault: ${cfg.owner}/${cfg.repo} (${cfg.branch || "main"})`;
+  settingsModalOverlay.hidden = false;
+});
+
+settingsClose.addEventListener("click", () => {
+  settingsModalOverlay.hidden = true;
+});
+
+settingsModalOverlay.addEventListener("click", (e) => {
+  if (e.target === settingsModalOverlay) settingsModalOverlay.hidden = true;
+});
+
+settingsLogout.addEventListener("click", () => {
+  if (!confirm("লগ আউট করবেন? আবার ঢুকতে PIN লাগবে।")) return;
+  api.clearSession();
+  window.location.reload();
+});
 
 // ============================================================
 // Helpers: icons, escaping

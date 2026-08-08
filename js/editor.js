@@ -23811,20 +23811,28 @@ function buildDecorations(view) {
           markDecos.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: "cm-list" }) });
           break;
         case "Link":
-          markDecos.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: "cm-link" }) });
+          markDecos.push({ from: node.from, to: node.to, deco: Decoration.mark({ class: "cm-link" }), isReplace: false });
           break;
         default:
           break;
       }
       if (MARK_NAMES.has(node.name) && !isActiveLine && node.to > node.from) {
-        markDecos.push({ from: node.from, to: node.to, deco: Decoration.replace({}) });
+        markDecos.push({ from: node.from, to: node.to, deco: Decoration.replace({}), isReplace: true });
       }
     }
   });
-  const all = [...lineDecos, ...markDecos].filter((d) => d.to >= d.from);
+  const all = [...lineDecos.map((d) => ({ ...d, isReplace: false })), ...markDecos].filter(
+    (d) => d.to >= d.from
+  );
+  const replaceRanges = new Set(
+    all.filter((d) => d.isReplace).map((d) => `${d.from}:${d.to}`)
+  );
+  const deduped = all.filter(
+    (d) => d.isReplace || !replaceRanges.has(`${d.from}:${d.to}`)
+  );
   try {
     return Decoration.set(
-      all.map((d) => d.deco.range(d.from, d.to)),
+      deduped.map((d) => d.deco.range(d.from, d.to)),
       true
       // sort — automatically handles ordering, avoids RangeSetBuilder crashes
     );
