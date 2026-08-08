@@ -1,0 +1,24 @@
+{
+  "name": "Mydian — আমার নোট",
+  "short_name": "Mydian",
+  "description": "ব্যক্তিগত মার্কডাউন নোট অ্যাপ, GitHub-এ সিঙ্ক হয়",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a1d",
+  "theme_color": "#151517",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

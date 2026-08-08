@@ -1,0 +1,10 @@
+name = "notes-app-worker"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Secrets এখানে লেখা হয় না — নিরাপত্তার জন্য এগুলো টার্মিনাল থেকে
+# নিচের কমান্ড দিয়ে আলাদাভাবে সেট করতে হবে:
+#
+#   wrangler secret put GITHUB_TOKEN
+#   wrangler secret put APP_PIN
+#   wrangler secret put SESSION_SECRET
