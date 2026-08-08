@@ -712,9 +712,25 @@ document.addEventListener("keydown", (e) => {
 });
 
 settingsLogout.addEventListener("click", () => {
-  if (!confirm("লগ আউট করবেন? আবার ঢুকতে PIN লাগবে।")) return;
+  // isDirty চেক না থাকলে: এডিটরে টাইপ করে সাথে সাথেই এখানে এসে লগ আউট
+  // চাপলে সেভ (300ms debounce, বা flushSave ইতিমধ্যে GitHub-এর দিকে
+  // in-flight/queued থাকলে) সম্পূর্ণ না হতেই reload হয়ে সেই পরিবর্তন
+  // চিরতরে হারিয়ে যেত — কোনো সতর্কতা ছাড়াই।
+  const msg = isDirty
+    ? "সেভ না করা পরিবর্তন আছে — লগ আউট করলে সেটা হারিয়ে যাবে। তারপরও লগ আউট করবেন?"
+    : "লগ আউট করবেন? আবার ঢুকতে PIN লাগবে।";
+  if (!confirm(msg)) return;
   api.clearSession();
   window.location.reload();
+});
+
+// ট্যাব বন্ধ করা, রিফ্রেশ, বা অন্য পেজে চলে যাওয়ার সময়ও একই ঝুঁকি ছিল —
+// সেভ না হওয়া পরিবর্তন থাকলে ব্রাউজারের নিজস্ব "আপনি কি নিশ্চিত?" ওয়ার্নিং
+// দেখানো হবে, যেটা আগে কোথাও ছিল না।
+window.addEventListener("beforeunload", (e) => {
+  if (!isDirty) return;
+  e.preventDefault();
+  e.returnValue = "";
 });
 
 // ============================================================
