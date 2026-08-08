@@ -3,7 +3,7 @@
 
 import { EditorView, keymap, Decoration, ViewPlugin } from "https://esm.sh/@codemirror/view@6.34.1";
 import { EditorState } from "https://esm.sh/@codemirror/state@6.4.1";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "https://esm.sh/@codemirror/commands@6.7.1";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "https://esm.sh/@codemirror/commands@6.7.1?deps=@codemirror/view@6.34.1,@codemirror/state@6.4.1";
 import { markdown } from "https://esm.sh/@codemirror/lang-markdown@6.3.1?deps=@codemirror/view@6.34.1,@codemirror/state@6.4.1";
 import { syntaxTree } from "https://esm.sh/@codemirror/language@6.10.6?deps=@codemirror/view@6.34.1,@codemirror/state@6.4.1";
 

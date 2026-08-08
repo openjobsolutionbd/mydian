@@ -259,6 +259,8 @@ async function openFile(node) {
       isDirty = false;
       highlightActiveRow(node.path);
     } catch (err) {
+      console.error("openFile (markdown) error:", err);
+      cmHost.innerHTML = `<div style="padding:20px;color:#e88;">এডিটর লোড করা যায়নি: ${escapeHtml(err.message || String(err))}</div>`;
       alert("ফাইল খোলা যায়নি: " + err.message);
     }
   } else if (isImage(node.name) || isPdf(node.name)) {
