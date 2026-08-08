@@ -21,8 +21,8 @@ export function clearSession() {
 export function getConfig() {
   const raw = localStorage.getItem(CONFIG_KEY);
   if (raw) return JSON.parse(raw);
-  // ডিফল্ট repo — এটাই সবসময় ব্যবহার হবে, popup/console লাগবে না
-  return { owner: "openjobsolutionbd", repo: "mydian", branch: "main" };
+  // vault (নোট/ডেটা) সবসময় আলাদা রিপোতে থাকে — অ্যাপের কোড আর ডেটা কখনো মিশবে না
+  return { owner: "openjobsolutionbd", repo: "mydian-vault", branch: "main" };
 }
 
 export function setConfig(cfg) {
