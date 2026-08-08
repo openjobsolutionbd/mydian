@@ -52,11 +52,8 @@ let pendingModalAction = null;
 // Login
 // ============================================================
 
-if (api.getSession() && api.getConfig()) {
+if (api.getSession()) {
   showApp();
-} else if (api.getSession() && !api.getConfig()) {
-  showApp();
-  promptRepoConfig();
 } else {
   loginScreen.hidden = false;
 }
@@ -68,12 +65,7 @@ loginForm.addEventListener("submit", async (e) => {
   if (!pin) return;
   try {
     await api.login(pin);
-    if (!api.getConfig()) {
-      showApp();
-      promptRepoConfig();
-    } else {
-      showApp();
-    }
+    showApp();
   } catch (err) {
     loginError.textContent = err.message;
     loginError.hidden = false;
@@ -85,15 +77,6 @@ loginForm.addEventListener("submit", async (e) => {
 function showApp() {
   loginScreen.hidden = true;
   appRoot.hidden = false;
-  loadFileTree();
-}
-
-function promptRepoConfig() {
-  const owner = window.prompt("আপনার GitHub username (owner):", "");
-  if (!owner) return;
-  const repo = window.prompt("Repository-র নাম:", "mydian");
-  if (!repo) return;
-  api.setConfig({ owner: owner.trim(), repo: repo.trim(), branch: "main" });
   loadFileTree();
 }
 
