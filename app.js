@@ -230,7 +230,7 @@ function toggleFolder(path) {
 // File open / edit / save
 // ============================================================
 
-async function openFile(node) {
+async function openFile(node, preloaded = null) {
   if (isDirty) {
     const proceed = confirm("সেভ না করা পরিবর্তন আছে। এগোলে হারিয়ে যাবে। এগোবেন?");
     if (!proceed) return;
@@ -252,7 +252,7 @@ async function openFile(node) {
     removeMediaPreview();
     setSaveIndicator("");
     try {
-      const { content, sha } = await api.fetchFile(node.path);
+      const { content, sha } = preloaded || (await api.fetchFile(node.path));
       currentFile = { path: node.path, sha, type: "md" };
       editorView = createEditor({
         parent: cmHost,
@@ -284,7 +284,7 @@ async function openFile(node) {
     cmHost.hidden = false;
     removeMediaPreview();
     try {
-      const { content, sha } = await api.fetchFile(node.path);
+      const { content, sha } = preloaded || (await api.fetchFile(node.path));
       currentFile = { path: node.path, sha, type: "text" };
       editorView = createEditor({
         parent: cmHost,
@@ -369,10 +369,19 @@ function setSaveIndicator(state) {
 async function createFile(path, initialContent = "") {
   try {
     const base64 = api.encodeBase64Utf8(initialContent);
-    await api.putFile(path, base64, `Create ${path}`);
-    await loadFileTree();
-    const node = findNodeByPath(path);
-    if (node) openFile(node);
+    const result = await api.putFile(path, base64, `Create ${path}`);
+    // sidebar list ব্যাকগ্রাউন্ডে রিফ্রেশ হোক — কিন্তু এডিটর খোলার জন্য এটার
+    // উপর নির্ভর করা হচ্ছে না, কারণ GitHub-এ কমিটের পরপরই recursive tree
+    // API সবসময় নতুন ফাইলটা তাৎক্ষণিকভাবে ফেরত না-ও দিতে পারে — সেক্ষেত্রে
+    // findNodeByPath() null পেত, আর ফাইলটা কখনো খুলতই না।
+    loadFileTree();
+    const name = path.split("/").pop();
+    // এইমাত্র যে content/sha পাওয়া গেছে (putFile-এর রেসপন্স থেকে) সেটাই
+    // সরাসরি এডিটরে বসানো হচ্ছে — আলাদা করে fetchFile() কল করে ফাইলটা আবার
+    // GitHub থেকে আনার দরকার নেই, এবং সেই বাড়তি রাউন্ড-ট্রিপ ব্যর্থ/দেরি হলে
+    // এডিটর মাউন্টই হতো না (ফাইল "খোলা" দেখাত কিন্তু ভেতরে কিছু লেখার
+    // জায়গা থাকত না)।
+    openFile({ path, name }, { content: initialContent, sha: result.content.sha });
   } catch (err) {
     alert("ফাইল তৈরি করা যায়নি: " + err.message);
   }
