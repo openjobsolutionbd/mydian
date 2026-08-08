@@ -79,11 +79,17 @@ export async function fetchTree() {
   const branch = cfg.branch || "main";
   const res = await request(`${repoBase()}/git/trees/${branch}?recursive=1`);
   if (!res.ok) {
-    if (res.status === 409 || res.status === 404) {
-      // খালি repo বা branch নেই
+    if (res.status === 404) {
+      // খালি repo/branch — GitHub-এর git/trees API খালি repo-তে 404 দেয়,
+      // মেসেজে সাধারণত "Git Repository is empty." থাকে। এটাই একমাত্র
+      // status যেটা নিরাপদে "কোনো ফাইল নেই" হিসেবে ধরা যায়।
       return [];
     }
-    throw new Error("ফাইল তালিকা আনা যায়নি");
+    // ৪০৯ (Conflict) সহ অন্য যেকোনো status কে "খালি" ধরে নেওয়া হচ্ছে না —
+    // আগে 409-কেও empty ধরা হতো, যেটা genuine error-কে "কোনো ফাইল নেই"
+    // হিসেবে দেখাতে পারত। এটা বিপজ্জনক: ইউজার ভাবতে পারতেন তার সব নোট
+    // হারিয়ে গেছে, যেখানে আসলে শুধু একটা network/API সমস্যা হয়েছিল।
+    throw new Error(`ফাইল তালিকা আনা যায়নি (HTTP ${res.status})`);
   }
   const data = await res.json();
   if (data.truncated) {
@@ -119,6 +125,16 @@ export async function putFile(path, contentBase64, message, sha = null) {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
+    if (res.status === 409) {
+      // ফাইলটা এই মুহূর্তে GitHub-এ যেই sha-তে আছে, সেটা আমাদের কাছে থাকা
+      // sha-র সাথে মেলেনি — মানে অন্য কোনো ডিভাইস/ট্যাব থেকে ফাইলটা এর
+      // মধ্যে বদলে গেছে। raw GitHub error মেসেজ (ইংরেজি, cryptic) না
+      // দেখিয়ে স্পষ্ট নির্দেশনা দেওয়া হচ্ছে।
+      throw new Error(
+        "এই ফাইলটা অন্য কোথাও থেকে ইতিমধ্যে বদলে গেছে। রিফ্রেশ করে আবার " +
+        "চেষ্টা করুন — নাহলে আপনার এই পরিবর্তনটা সেভ হবে না।"
+      );
+    }
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || "সেভ করা যায়নি");
   }

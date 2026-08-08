@@ -71,6 +71,24 @@ function json(data, status = 200, extraHeaders = {}) {
   });
 }
 
+// GitHub প্রক্সি কোন কোন owner/repo-তে request পাস করতে পারবে তার allowlist।
+// env.ALLOWED_REPOS সেট থাকলে সেটা ব্যবহার হয় (কমা দিয়ে আলাদা করা
+// "owner/repo" এন্ট্রি, যেমন "openjobsolutionbd/mydian,openjobsolutionbd/mydian-vault")।
+// না থাকলে এই দুটো known repo-ই ডিফল্ট হিসেবে allow করা হয়, যাতে বাড়তি
+// কোনো secret সেট না করেও এই ফিক্স কাজ করে।
+const DEFAULT_ALLOWED_REPOS = [
+  "openjobsolutionbd/mydian",
+  "openjobsolutionbd/mydian-vault",
+];
+
+function isAllowedRepo(owner, repo, env) {
+  const list = (env.ALLOWED_REPOS
+    ? env.ALLOWED_REPOS.split(",").map((s) => s.trim())
+    : DEFAULT_ALLOWED_REPOS
+  ).map((s) => s.toLowerCase());
+  return list.includes(`${owner}/${repo}`.toLowerCase());
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -105,6 +123,18 @@ export default {
     // এটা GitHub token জুড়ে দিয়ে সরাসরি GitHub-এ পাঠিয়ে দেবে
     if (url.pathname.startsWith("/api/github/")) {
       const githubPath = url.pathname.replace("/api/github", "");
+
+      // নিরাপত্তা: GITHUB_TOKEN-এর যে repo-গুলোতে access আছে (mydian কোড
+      // repo + mydian-vault ডেটা repo), তার যেকোনো একটাতে এই proxy দিয়ে
+      // পড়া/লেখা সম্ভব ছিল — session token একবার পেলেই যথেষ্ট, ইউজারের
+      // নিজের vault-এর বাইরেও (এমনকি অ্যাপের নিজের কোড repo-তেও) request
+      // পাঠানো যেত, কারণ কোনো repo allowlist ছিল না। এখন শুধু
+      // ALLOWED_REPOS-এ থাকা owner/repo-র জন্যই request পাস করা হবে।
+      const repoMatch = githubPath.match(/^\/repos\/([^/]+)\/([^/]+)\//);
+      if (!repoMatch || !isAllowedRepo(repoMatch[1], repoMatch[2], env)) {
+        return json({ error: "এই repo-তে প্রক্সি করার অনুমতি নেই" }, 403, cors);
+      }
+
       const githubUrl = `${GITHUB_API}${githubPath}${url.search}`;
 
       const init = {

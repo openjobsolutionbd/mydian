@@ -241,6 +241,7 @@ async function openFile(node, preloaded = null) {
     const proceed = confirm("সেভ না করা পরিবর্তন আছে। এগোলে হারিয়ে যাবে। এগোবেন?");
     if (!proceed) return;
   }
+  cancelPendingSave();
 
   breadcrumb.textContent = node.path;
   emptyState.hidden = true;
@@ -371,8 +372,18 @@ async function flushSave(content) {
     setSaveIndicator("saved");
     setTimeout(() => setSaveIndicator(""), 2000);
   } catch (err) {
-    setSaveIndicator("error");
+    setSaveIndicator("error", err.message);
     console.error(err);
+    // sha conflict (409) হলে পুরনো sha দিয়ে আবার চেষ্টা করলে সেটাও একই
+    // কারণে ব্যর্থ হবে — pending queue-তে থাকা content থাকলেও সেটা দিয়ে
+    // আবার চেষ্টা না করে থামিয়ে দেওয়া হচ্ছে, নাহলে ইউজার টাইপ করতে থাকলে
+    // প্রতিটা keystroke একটা নিশ্চিত-ব্যর্থ retry ট্রিগার করত (infinite
+    // retry loop)। ইউজারকে স্পষ্টভাবে জানানো হচ্ছে যাতে ম্যানুয়ালি
+    // রিফ্রেশ করে আবার লিখতে পারেন।
+    if (err.message && err.message.includes("অন্য কোথাও থেকে ইতিমধ্যে বদলে গেছে")) {
+      pendingSaveContent = null;
+      alert(err.message);
+    }
   } finally {
     isSaving = false;
     if (pendingSaveContent !== null) {
@@ -383,10 +394,20 @@ async function flushSave(content) {
   }
 }
 
-function setSaveIndicator(state) {
+function cancelPendingSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  pendingSaveContent = null;
+  // isSaving ইচ্ছাকৃতভাবে touch করা হচ্ছে না — যদি একটা PUT ইতিমধ্যে GitHub-এর
+  // দিকে in-flight থাকে সেটা থামানো সম্ভব না, শুধু নিশ্চিত করা হচ্ছে যে সেই
+  // request শেষ হওয়ার পর আর কোনো "পরের" save চেইন হবে না।
+}
+
+function setSaveIndicator(state, detail = "") {
   saveIndicator.className = "save-indicator " + state;
   const map = { saving: "সেভ হচ্ছে…", saved: "সেভ হয়েছে ✓", error: "সেভ ব্যর্থ", "": "" };
   saveIndicator.textContent = map[state] ?? "";
+  saveIndicator.title = detail || "";
 }
 
 // ============================================================
@@ -434,6 +455,9 @@ function findNodeByPath(path) {
 
 async function deleteFileNode(node) {
   try {
+    if (currentFile && currentFile.path === node.path) {
+      cancelPendingSave();
+    }
     await api.deleteFile(node.path, node.sha, `Delete ${node.path}`);
     if (currentFile && currentFile.path === node.path) {
       closeEditor();
@@ -447,6 +471,9 @@ async function deleteFileNode(node) {
 async function deleteFolder(folderNode) {
   const files = collectAllFiles(folderNode);
   try {
+    if (currentFile && files.some((f) => f.path === currentFile.path)) {
+      cancelPendingSave();
+    }
     for (const f of files) {
       await api.deleteFile(f.path, f.sha, `Delete ${f.path}`);
     }
@@ -470,6 +497,7 @@ function collectAllFiles(node) {
 }
 
 function closeEditor() {
+  cancelPendingSave();
   currentFile = null;
   destroyEditor(editorView);
   editorView = null;
@@ -722,12 +750,35 @@ function trashSvg() {
 if ("serviceWorker" in navigator) {
   let refreshing = false;
 
-  // একই ট্যাবে নতুন SW activate হলে (controllerchange) — একবারই reload করো
+  // একই ট্যাবে নতুন SW activate হলে (controllerchange) — একবারই reload করো।
+  // গুরুত্বপূর্ণ: unsaved বা in-flight save থাকলে সাথে সাথে reload করলে সেই
+  // পরিবর্তন হারিয়ে যেতে পারে (নতুন deploy ঠিক ইউজার টাইপ করার মুহূর্তে
+  // এলে)। তাই আগে চলমান save শেষ হওয়ার জন্য অল্প অপেক্ষা করা হয়, আর এখনো
+  // unsaved change থাকলে ইউজারকে জিজ্ঞেস করে নেওয়া হয়।
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (refreshing) return;
     refreshing = true;
-    window.location.reload();
+    safeReloadForUpdate();
   });
+
+  async function safeReloadForUpdate() {
+    // চলমান/pending save শেষ হওয়ার জন্য সর্বোচ্চ ৫ সেকেন্ড অপেক্ষা করা হয়
+    const deadline = Date.now() + 5000;
+    while ((isSaving || pendingSaveContent !== null) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    if (isDirty) {
+      const proceed = confirm(
+        "নতুন আপডেট এসেছে, কিন্তু আপনার কিছু পরিবর্তন এখনো সেভ হয়নি। " +
+        "এখনই আপডেট করলে সেগুলো হারিয়ে যেতে পারে। এখনই আপডেট করবেন?"
+      );
+      if (!proceed) {
+        refreshing = false; // পরে আবার visibilitychange/interval-এ update() ট্রাই হবে
+        return;
+      }
+    }
+    window.location.reload();
+  }
 
   window.addEventListener("load", () => {
     navigator.serviceWorker
