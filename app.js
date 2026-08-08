@@ -19,6 +19,7 @@ const syncText = el("sync-text");
 const breadcrumb = el("breadcrumb");
 const emptyState = el("empty-state");
 const editorWrap = el("editor-wrap");
+const fileTitle = el("file-title");
 const cmHost = el("cm-editor");
 const saveIndicator = el("save-indicator");
 
@@ -245,6 +246,8 @@ async function openFile(node) {
   editorView = null;
 
   if (isMarkdown(node.name)) {
+    fileTitle.hidden = false;
+    fileTitle.textContent = fileNameWithoutExt(node.name);
     cmHost.hidden = false;
     removeMediaPreview();
     setSaveIndicator("");
@@ -264,6 +267,7 @@ async function openFile(node) {
       alert("ফাইল খোলা যায়নি: " + err.message);
     }
   } else if (isImage(node.name) || isPdf(node.name)) {
+    fileTitle.hidden = true;
     cmHost.hidden = true;
     setSaveIndicator("");
     try {
@@ -275,6 +279,8 @@ async function openFile(node) {
       alert("ফাইল খোলা যায়নি: " + err.message);
     }
   } else {
+    fileTitle.hidden = false;
+    fileTitle.textContent = fileNameWithoutExt(node.name);
     cmHost.hidden = false;
     removeMediaPreview();
     try {
@@ -291,6 +297,11 @@ async function openFile(node) {
       alert("ফাইল খোলা যায়নি: " + err.message);
     }
   }
+}
+
+function fileNameWithoutExt(name) {
+  const idx = name.lastIndexOf(".");
+  return idx === -1 ? name : name.slice(0, idx);
 }
 
 function highlightActiveRow(path) {

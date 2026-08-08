@@ -448,13 +448,28 @@ input {
 .editor-wrap {
   height: 100%;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-title {
+  max-width: 760px;
+  width: 100%;
+  margin: 28px auto 0;
+  padding: 0 24px;
+  font-size: 2.1em;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-primary);
+  word-break: break-word;
 }
 
 .cm-host {
-  height: 100%;
+  flex: 1 1 auto;
   max-width: 760px;
   margin: 0 auto;
   padding: 8px 24px 40vh;
+  width: 100%;
 }
 
 /* CodeMirror overrides — Notion-like live preview feel */
