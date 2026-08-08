@@ -619,11 +619,45 @@ function trashSvg() {
 }
 
 // ============================================================
-// PWA: service worker registration
+// PWA: service worker registration + auto-update
 // ============================================================
+// নতুন ডিপ্লয় হলে ব্যবহারকারীকে ম্যানুয়ালি cache clear করতে হবে না —
+// নতুন service worker পাওয়া গেলেই সেটাকে activate করে পেজ auto-reload করে দেওয়া হয়।
 
 if ("serviceWorker" in navigator) {
+  let refreshing = false;
+
+  // একই ট্যাবে নতুন SW activate হলে (controllerchange) — একবারই reload করো
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((err) => console.warn("SW registration failed", err));
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((reg) => {
+        // পেজ খোলা অবস্থায় থাকতেই মাঝেমধ্যে নতুন ভার্সন আছে কিনা চেক করো
+        setInterval(() => reg.update(), 60 * 1000); // প্রতি ১ মিনিটে
+
+        reg.addEventListener("updatefound", () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener("statechange", () => {
+            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+              // নতুন ভার্সন ইনস্টল হয়ে গেছে, পুরনোটা এখনো চালু আছে — নতুনটাকে
+              // এখনই activate হতে বলো, তারপর controllerchange event reload করবে
+              newWorker.postMessage("SKIP_WAITING");
+            }
+          });
+        });
+
+        // পেজ ফোকাসে ফিরলে (ট্যাব বদলে আবার আসা) আপডেট চেক করো
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") reg.update();
+        });
+      })
+      .catch((err) => console.warn("SW registration failed", err));
   });
 }

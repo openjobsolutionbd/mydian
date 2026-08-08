@@ -1,0 +1,12 @@
+# Cloudflare Pages headers
+# sw.js এবং index.html কখনো browser/CDN HTTP cache-এ আটকে থাকতে পারবে না —
+# এতে নতুন deploy হলে সাথে সাথেই নতুন service worker detect হবে।
+
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/
+  Cache-Control: no-cache, no-store, must-revalidate
