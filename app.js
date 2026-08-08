@@ -330,30 +330,51 @@ function removeMediaPreview() {
 }
 
 let saveTimer = null;
+let isSaving = false;
+let pendingSaveContent = null;
+
 async function saveCurrentFile(content) {
   if (!currentFile) return;
   isDirty = true;
   setSaveIndicator("saving");
 
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    try {
-      const base64 = api.encodeBase64Utf8(content);
-      const result = await api.putFile(
-        currentFile.path,
-        base64,
-        `Update ${currentFile.path}`,
-        currentFile.sha
-      );
-      currentFile.sha = result.content.sha;
-      isDirty = false;
-      setSaveIndicator("saved");
-      setTimeout(() => setSaveIndicator(""), 2000);
-    } catch (err) {
-      setSaveIndicator("error");
-      console.error(err);
+  saveTimer = setTimeout(() => flushSave(content), 300);
+}
+
+async function flushSave(content) {
+  if (!currentFile) return;
+  if (isSaving) {
+    // আগের save এখনো GitHub-এর দিকে in-flight — একই সাথে দুটো PUT পাঠালে
+    // পুরনো sha দিয়ে দ্বিতীয়টা 409 Conflict দিয়ে ব্যর্থ হতে পারে। তাই এখন
+    // শুধু সর্বশেষ content মনে রাখা হচ্ছে, চলমান save শেষ হলে সেটাই সেভ হবে।
+    pendingSaveContent = content;
+    return;
+  }
+  isSaving = true;
+  try {
+    const base64 = api.encodeBase64Utf8(content);
+    const result = await api.putFile(
+      currentFile.path,
+      base64,
+      `Update ${currentFile.path}`,
+      currentFile.sha
+    );
+    currentFile.sha = result.content.sha;
+    isDirty = false;
+    setSaveIndicator("saved");
+    setTimeout(() => setSaveIndicator(""), 2000);
+  } catch (err) {
+    setSaveIndicator("error");
+    console.error(err);
+  } finally {
+    isSaving = false;
+    if (pendingSaveContent !== null) {
+      const next = pendingSaveContent;
+      pendingSaveContent = null;
+      flushSave(next);
     }
-  }, 300);
+  }
 }
 
 function setSaveIndicator(state) {
@@ -366,7 +387,7 @@ function setSaveIndicator(state) {
 // Create / delete
 // ============================================================
 
-async function createFile(path, initialContent = "") {
+async function createFile(path, initialContent = "", openAfterCreate = true) {
   try {
     const base64 = api.encodeBase64Utf8(initialContent);
     const result = await api.putFile(path, base64, `Create ${path}`);
@@ -375,6 +396,7 @@ async function createFile(path, initialContent = "") {
     // API সবসময় নতুন ফাইলটা তাৎক্ষণিকভাবে ফেরত না-ও দিতে পারে — সেক্ষেত্রে
     // findNodeByPath() null পেত, আর ফাইলটা কখনো খুলতই না।
     loadFileTree();
+    if (!openAfterCreate) return;
     const name = path.split("/").pop();
     // এইমাত্র যে content/sha পাওয়া গেছে (putFile-এর রেসপন্স থেকে) সেটাই
     // সরাসরি এডিটরে বসানো হচ্ছে — আলাদা করে fetchFile() কল করে ফাইলটা আবার
@@ -388,8 +410,10 @@ async function createFile(path, initialContent = "") {
 }
 
 async function createFolder(path) {
-  // GitHub-এ খালি ফোল্ডার রাখা যায় না — একটা .gitkeep ফাইল দিয়ে ফোল্ডার তৈরি করি
-  await createFile(`${path}/.gitkeep`, "");
+  // GitHub-এ খালি ফোল্ডার রাখা যায় না — একটা .gitkeep ফাইল দিয়ে ফোল্ডার তৈরি করি।
+  // openAfterCreate=false — নাহলে ইউজার "নতুন ফোল্ডার" চাপলে অদ্ভুতভাবে
+  // একটা .gitkeep ফাইল এডিটরে খুলে যেত।
+  await createFile(`${path}/.gitkeep`, "", false);
 }
 
 function findNodeByPath(path) {

@@ -10,45 +10,62 @@
 
 ## ০. সর্বশেষ অবস্থা (এই সেকশনটা প্রতিটা কাজের পর আপডেট হবে)
 
-**সর্বশেষ commit:** merge (createFile fix + editor zero-height CSS fix + docs)
+**সর্বশেষ commit:** কোড রিভিউ থেকে পাওয়া ৪টা bug fix (নিচে দেখুন)
 **তারিখ:** ২০২৬-০৮-০৮
-**অবস্থা:** নতুন ফাইল তৈরি করে সাথে সাথে লেখা যাচ্ছিল না — এই সমস্যাটার
-দুটো আলাদা কারণ ছিল, দুটোই এখন ঠিক করা হয়েছে (নিচে দেখুন)। এই মুহূর্তে
-কোনো known bug pending নেই — তবে এই দুই ফিক্সের পরের ভেরিফিকেশন এখনো
-ইউজারের কাছ থেকে কনফার্ম হয়নি।
+**অবস্থা:** এবার কোনো নির্দিষ্ট উপসর্গ ছাড়াই পুরো `app.js`, `js/api.js`,
+`js/tree.js`, `worker/worker.js` লাইন-বাই-লাইন রিভিউ করে কয়েকটা লুকানো
+bug পাওয়া গেছে এবং ঠিক করা হয়েছে। এগুলো তাৎক্ষণিকভাবে ইউজার-facing না
+হলেও নির্দিষ্ট পরিস্থিতিতে সমস্যা করত।
 
-**সর্বশেষ দুটো ফিক্স (নতুন থেকে পুরনো):**
-1. **এডিটর area zero-height হয়ে যাচ্ছিল (CSS bug):** ফাইল-টাইটেল হেডিং
-   যোগ করার সময় `.editor-wrap`-কে flex column করা হয়েছিল, কিন্তু
-   `.cm-host`-এ `flex: 1 1 auto` দেওয়া থাকলেও `.editor-wrap`-এর
-   `overflow-y: auto` আর `min-height` না থাকায় flex item আসল height
-   না পেয়ে প্রায় 0px-এ কলাপ্স করে ফেলত। ফলে এডিটর DOM-এ থাকলেও দেখাই
-   যেত না, ক্লিক/টাইপ কিছুই কাজ করত না। সমাধান: `.cm-host`-এ
-   `min-height: 0` আর নিজস্ব `overflow-y: auto` দেওয়া হয়েছে,
-   `.editor-wrap`-এর overflow সরিয়ে `hidden` করা হয়েছে (স্ক্রলিং এখন
-   `.cm-host` নিজে করে)।
-2. **নতুন ফাইল তৈরির পর race condition (`app.js`):** `createFile()`
-   ফাইল কমিট করার পর পুরো tree রিলোড করে, তারপর আবার GitHub থেকে সেই
-   ফাইলের content fetch করে এডিটর খুলত। কিন্তু GitHub-এর recursive tree
-   read কমিটের ঠিক পরপরই সবসময় consistent না-ও হতে পারে — তাই মাঝেমধ্যে
-   `findNodeByPath()` `null` পেত এবং ফাইল কখনো `openFile()`-এ পৌঁছাতই
-   না, ফলে এডিটর মাউন্ট হতো না। সমাধান: `putFile()`-এর রেসপন্স থেকেই
-   সরাসরি `content`/`sha` নিয়ে এডিটরে বসানো হয় এখন, বাড়তি round-trip
-   ছাড়াই।
+**এই রিভিউতে যা পাওয়া ও ঠিক হয়েছে:**
+1. **`createFolder()` অদ্ভুতভাবে `.gitkeep` ফাইল এডিটরে খুলে ফেলত:**
+   আগের সেশনে `createFile()`-কে বলা হয়েছিল ফাইল তৈরি করার পরপরই সেটা
+   এডিটরে খুলে দিতে (race-condition fix)। কিন্তু `createFolder()`
+   internally `createFile(path/.gitkeep, "")` কল করে খালি ফোল্ডার
+   বানানোর কৌশল হিসেবে — ফলে "নতুন ফোল্ডার" বাটনে ক্লিক করলে ফোল্ডার
+   তো তৈরি হতোই, কিন্তু সাথে অদ্ভুতভাবে একটা `.gitkeep` ফাইল এডিটরে
+   খুলে যেত। সমাধান: `createFile()`-এ `openAfterCreate` প্যারামিটার
+   যোগ করা হয়েছে, `createFolder()` এখন `false` পাস করে।
+2. **`.gitkeep` ফাইল sidebar-এ ভুতুড়ে ফাইলের মতো দেখা যেত:** খালি
+   ফোল্ডার বানাতে GitHub-এ `.gitkeep` লাগে, কিন্তু এটা ইউজারকে দেখানোর
+   কথা না। `js/tree.js`-এর `sortedEntries()`-এ এখন `.gitkeep` filter
+   করে বাদ দেওয়া হয়।
+3. **সেভ করার সময় race condition (409 Conflict-এর ঝুঁকি):**
+   `saveCurrentFile()`-এ 300ms debounce ছিল, কিন্তু debounce শেষ হয়ে
+   `putFile()` in-flight থাকা অবস্থায় যদি ইউজার আরও টাইপ করত, তাহলে
+   দ্বিতীয় save পুরনো `sha` দিয়ে পাঠানো হতো — প্রথমটা ততক্ষণে commit
+   হয়ে sha বদলে গেলে GitHub থেকে 409 Conflict আসত এবং সেভ silently
+   ব্যর্থ হতো। সমাধান: `isSaving` flag আর `pendingSaveContent` queue
+   দিয়ে save call-গুলো সিরিয়ালাইজ করা হয়েছে — এখন save চলাকালীন নতুন
+   change এলে সেটা wait করে, চলমান save শেষ হওয়ার সাথে সাথেই
+   সর্বশেষ content দিয়ে পরের save শুরু হয়।
+4. **`fetchTree()` বড় repo-তে ফাইল silently miss করতে পারত:** GitHub-এর
+   recursive tree API অনেক বেশি ফাইল থাকলে `truncated: true` দিয়ে
+   রেসপন্স কেটে দেয় — আগে এটা চেক করা হতো না, তাই কিছু ফাইল sidebar-এ
+   না দেখালেও কোনো সতর্কতা আসত না। এখন `console.warn` দিয়ে অন্তত
+   ডেভেলপার কনসোলে জানানো হয় (বর্তমান vault ছোট, তাই এটা এখন সমস্যা না,
+   কিন্তু ভবিষ্যতে বড় হলে গুরুত্বপূর্ণ হয়ে উঠবে)।
+
+**নোট করা কিন্তু ফিক্স করা হয়নি (security hardening, bug না):**
+`worker/worker.js`-এর `corsHeaders()`-এ `Origin` header না থাকলে `*`
+wildcard-এ fallback করে। Session token আলাদাভাবে verify হয় বলে এটা
+critical না, তবে ভবিষ্যতে নির্দিষ্ট origin allowlist করা ভালো অভ্যাস
+হবে (যেমন শুধু `mydian-tei.pages.dev`)।
 
 **এর আগে যা হয়েছিল (কালানুক্রমে, নতুন থেকে পুরনো):**
-1. `PROJECT_NOTES.md` তৈরি — এই ডকুমেন্ট
-2. CodeMirror এডিটর CDN থেকে সরিয়ে local bundle করা হয়েছে (`js/editor.js`
+1. এডিটর area zero-height CSS bug + createFile race condition ফিক্স
+2. `PROJECT_NOTES.md` তৈরি — এই ডকুমেন্ট
+3. CodeMirror এডিটর CDN থেকে সরিয়ে local bundle করা হয়েছে (`js/editor.js`
    এখন esbuild দিয়ে বান্ডলড, কোনো runtime CDN নির্ভরতা নেই) — কারণ CDN
    import সাইলেন্টলি ফেইল করে এডিটর area খালি দেখাচ্ছিল
-3. Obsidian-স্টাইল ফাইল টাইটেল (বড় হেডিং, ফাইলের নাম) যোগ করা হয়েছে
-4. অ্যাপ কোড আর নোট ডেটা আলাদা করা হয়েছে — নতুন `mydian-vault` রিপো
+4. Obsidian-স্টাইল ফাইল টাইটেল (বড় হেডিং, ফাইলের নাম) যোগ করা হয়েছে
+5. অ্যাপ কোড আর নোট ডেটা আলাদা করা হয়েছে — নতুন `mydian-vault` রিপো
    তৈরি করে ডেটা storage হিসেবে সেট করা হয়েছে
-5. `WORKER_URL` placeholder ঠিক করে আসল Worker URL বসানো হয়েছে (লগইন
+6. `WORKER_URL` placeholder ঠিক করে আসল Worker URL বসানো হয়েছে (লগইন
    কাজ করছিল না এই কারণে)
-6. `[hidden]` CSS specificity bug ঠিক করা হয়েছে (মোডাল/লগইন স্ক্রিন
+7. `[hidden]` CSS specificity bug ঠিক করা হয়েছে (মোডাল/লগইন স্ক্রিন
    একসাথে দেখাচ্ছিল)
-7. Service worker cache bug ঠিক করা হয়েছে (নতুন deploy পুরনো cache-এর
+8. Service worker cache bug ঠিক করা হয়েছে (নতুন deploy পুরনো cache-এর
    কারণে দেখা যাচ্ছিল না)
 
 বিস্তারিত প্রতিটা সমস্যার জন্য নিচে সেকশন ৩ দেখুন।

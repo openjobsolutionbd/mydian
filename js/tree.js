@@ -38,8 +38,12 @@ export function buildTree(flatFiles) {
 }
 
 // object-of-children কে sorted array-তে রূপান্তর (folder আগে, তারপর file, দুটোই a-z)
+// .gitkeep ফাইল বাদ দেওয়া হয় — এটা শুধু GitHub-এ খালি ফোল্ডার রাখার কৌশল হিসেবে
+// তৈরি হয়, ইউজারকে দেখানোর কোনো কারণ নেই।
 export function sortedEntries(node) {
-  const entries = Object.values(node.children || {});
+  const entries = Object.values(node.children || {}).filter(
+    (n) => n.name !== ".gitkeep"
+  );
   return entries.sort((a, b) => {
     if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
     return a.name.localeCompare(b.name, "bn");

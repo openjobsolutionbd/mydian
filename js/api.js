@@ -86,6 +86,9 @@ export async function fetchTree() {
     throw new Error("ফাইল তালিকা আনা যায়নি");
   }
   const data = await res.json();
+  if (data.truncated) {
+    console.warn("GitHub tree response truncated — সব ফাইল sidebar-এ নাও দেখাতে পারে (repo-তে ফাইল সংখ্যা অনেক বেশি)।");
+  }
   return (data.tree || []).filter((item) => item.type === "blob");
 }
 
