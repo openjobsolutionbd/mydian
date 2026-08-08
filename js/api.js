@@ -1,7 +1,7 @@
 // api.js — Worker-এর মাধ্যমে GitHub API-র সাথে কথা বলে।
 // Worker-এর URL নিচে বসাতে হবে (deploy করার পর wrangler যেটা দেবে)।
 
-const WORKER_URL = "__WORKER_URL__"; // deploy-এর পর নিজের Worker URL বসান
+const WORKER_URL = "https://notes-app-worker.openjobsolutionbd.workers.dev";
 
 const SESSION_KEY = "mydian_session";
 const CONFIG_KEY = "mydian_config"; // { owner, repo, branch }
