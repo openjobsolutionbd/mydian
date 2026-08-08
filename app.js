@@ -180,7 +180,7 @@ function renderNode(node) {
       openModal({
         title: "নতুন ফাইল",
         placeholder: "নাম.md",
-        onConfirm: (name) => createFile(`${node.path}/${name}`),
+        onConfirm: (name) => createFile(`${node.path}/${sanitizeFilename(name)}`),
       });
     });
     row.querySelector('[data-action="delete"]')?.addEventListener("click", (e) => {
@@ -520,7 +520,7 @@ btnNewFile.addEventListener("click", () => {
   openModal({
     title: "নতুন ফাইল (root-এ)",
     placeholder: "নাম.md",
-    onConfirm: (name) => createFile(name),
+    onConfirm: (name) => createFile(sanitizeFilename(name)),
   });
 });
 
@@ -528,7 +528,7 @@ btnNewFolder.addEventListener("click", () => {
   openModal({
     title: "নতুন ফোল্ডার (root-এ)",
     placeholder: "ফোল্ডারের নাম",
-    onConfirm: (name) => createFolder(name),
+    onConfirm: (name) => createFolder(sanitizeFilename(name)),
   });
 });
 
@@ -596,8 +596,12 @@ function uploadAttachment(file) {
         const base64 = reader.result.split(",")[1];
         const folder = currentFile ? currentFile.path.split("/").slice(0, -1).join("/") : "attachments";
         const targetFolder = folder || "attachments";
-        const path = `${targetFolder}/${file.name}`;
-        await api.putFile(path, base64, `Add attachment ${file.name}`);
+        // file.name সরাসরি path-এ বসানোর আগে sanitize করা হচ্ছে — এতে '/' বা
+        // '..' থাকলে সেটা targetFolder-এর বাইরে গিয়ে অন্য কোথাও (এমনকি
+        // vault-এর অন্য ফোল্ডারে) ফাইল কমিট করে ফেলতে পারত, ইউজারের অজান্তে।
+        const safeName = sanitizeFilename(file.name);
+        const path = `${targetFolder}/${safeName}`;
+        await api.putFile(path, base64, `Add attachment ${safeName}`);
         resolve();
       } catch (err) {
         alert("আপলোড ব্যর্থ: " + err.message);
@@ -606,6 +610,14 @@ function uploadAttachment(file) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+function sanitizeFilename(name) {
+  // path separator ('/', '\'), leading dots (hidden file/'..'), এবং
+  // অন্যান্য filesystem-এ সমস্যাযুক্ত ক্যারেক্টার সরিয়ে দেওয়া হয়
+  const base = name.split(/[/\\]/).pop() || "file";
+  const cleaned = base.replace(/^\.+/, "").replace(/[\x00-\x1f<>:"|?*]/g, "_").trim();
+  return cleaned || "file";
 }
 
 // ============================================================
@@ -629,6 +641,9 @@ function closeMobileSidebar() {
 // ============================================================
 
 function openModal({ title, placeholder, hint, onConfirm }) {
+  // দুটো আলাদা মোডাল (নতুন ফাইল/ফোল্ডার আর সেটিংস) একই সময়ে খোলা থাকলে
+  // ওভারল্যাপ করে stack হয়ে যেত — একটা খোলার সময় অন্যটা বন্ধ করে দেওয়া হচ্ছে
+  settingsModalOverlay.hidden = true;
   modalTitle.textContent = title;
   modalInput.placeholder = placeholder || "";
   modalHint.textContent = hint || "";
@@ -670,17 +685,30 @@ function submitModal() {
 // থেকে যেত, ইউজার চাইলেও বের হতে পারতেন না।
 
 btnSettings.addEventListener("click", () => {
+  // এখানেও একই কারণে অন্য মোডালটা বন্ধ করে দেওয়া হচ্ছে
+  closeModal();
   const cfg = api.getConfig();
   settingsVaultInfo.textContent = `Vault: ${cfg.owner}/${cfg.repo} (${cfg.branch || "main"})`;
   settingsModalOverlay.hidden = false;
 });
 
-settingsClose.addEventListener("click", () => {
+function closeSettingsModal() {
   settingsModalOverlay.hidden = true;
-});
+}
+
+settingsClose.addEventListener("click", closeSettingsModal);
 
 settingsModalOverlay.addEventListener("click", (e) => {
-  if (e.target === settingsModalOverlay) settingsModalOverlay.hidden = true;
+  if (e.target === settingsModalOverlay) closeSettingsModal();
+});
+
+document.addEventListener("keydown", (e) => {
+  // মূল নতুন-ফাইল মোডালে নিজস্ব Escape handler আছে (modalInput-এ), কিন্তু
+  // সেটিংস মোডালে কোনো Escape সাপোর্টই ছিল না — শুধু ক্লিক বা "বন্ধ করুন"
+  // বাটনেই বন্ধ করা যেত। এখন consistency-র জন্য global Escape যোগ করা হলো।
+  if (e.key === "Escape" && !settingsModalOverlay.hidden) {
+    closeSettingsModal();
+  }
 });
 
 settingsLogout.addEventListener("click", () => {

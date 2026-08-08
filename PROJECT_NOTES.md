@@ -10,98 +10,70 @@
 
 ## ০. সর্বশেষ অবস্থা (এই সেকশনটা প্রতিটা কাজের পর আপডেট হবে)
 
-**সর্বশেষ commit:** গভীর কোড রিভিউ থেকে পাওয়া ৬টা bug fix, যার মধ্যে
-একটা security-critical (নিচে দেখুন)
+> ⚠️ **এখনো পেন্ডিং থাকতে পারে — যাচাই করে নেওয়া জরুরি:**
+> `worker/worker.js`-এ একটা security fix করা হয়েছিল (repo allowlist),
+> কিন্তু Cloudflare **Worker আলাদাভাবে deploy করতে হয়**
+> (`wrangler deploy` দিয়ে) — GitHub push হলে Pages-এর মতো এটা
+> auto-deploy হয় না। ইউজার এখনো নিশ্চিত করেননি যে `wrangler deploy`
+> চালানো হয়েছে কিনা। যতক্ষণ না এটা করা হচ্ছে, ততক্ষণ পুরনো (repo
+> allowlist ছাড়া) Worker কোডই লাইভ থাকবে। **পরবর্তী সেশনে এটা ইউজারকে
+> মনে করিয়ে দেওয়া বা জিজ্ঞেস করে নেওয়া উচিত।**
+
+**সর্বশেষ commit:** আরও ৩টা bug fix — filename path-traversal ঝুঁকি,
+দুটো মোডাল একসাথে stack হওয়া, সেটিংস মোডালে Escape কাজ না করা
 **তারিখ:** ২০২৬-০৮-০৮
+**অবস্থা:** ইউজার আবার "bug fix koro" বলার পর আরও গভীরভাবে খোঁজা
+হয়েছে, বিশেষভাবে user-input sanitization আর UI state-conflict এর
+দিক থেকে। এই মুহূর্তে কোনো known bug pending নেই (উপরের wrangler
+deploy ধাপ ছাড়া)।
 
-> ⚠️ **এই আপডেটের একটা অংশের জন্য শুধু GitHub push যথেষ্ট না —**
-> `worker/worker.js`-এ একটা security fix করা হয়েছে, কিন্তু Cloudflare
-> **Worker আলাদাভাবে deploy করতে হয়** (`wrangler deploy` দিয়ে), Pages-এর
-> মতো GitHub push হলেই auto-deploy হয় না। যতক্ষণ না ম্যানুয়ালি
-> `wrangler deploy` চালানো হচ্ছে, ততক্ষণ পুরনো (কম নিরাপদ) Worker কোডই
-> লাইভ থাকবে। **এই ধাপটা বাকি আছে কিনা যাচাই করে নেওয়া জরুরি।**
-
-**এই রাউন্ডে ইউজার "খুব গভীরভাবে বাগ খুঁজ" বলার পর যা পাওয়া গেছে:**
-
-1. **🔴 [Security] GitHub প্রক্সি সম্পূর্ণ open-ended ছিল
-   (`worker/worker.js`):** `/api/github/<path>` — এই প্রক্সি এন্ডপয়েন্টে
-   কোনো repo allowlist ছিল না। মানে একবার valid session token থাকলে
-   (যেমন legitimate PIN লগইনের পর), সেই টোকেন দিয়ে **`GITHUB_TOKEN`
-   যেকোনো repo-তে access রাখে তার যেকোনোটাতেই** (এই টোকেন `mydian` কোড
-   repo এবং `mydian-vault` ডেটা repo — দুটোতেই Read/write access রাখে)
-   read/write request পাঠানো সম্ভব ছিল, ইউজারের নিজের vault ছাড়াও।
-   অর্থাৎ session token leak হলে অ্যাপের নিজের কোড repo-ও (`mydian`)
-   ওভাররাইট করা সম্ভব ছিল। **সমাধান:** `isAllowedRepo()` হেল্পার যোগ
-   করা হয়েছে যেটা শুধু `openjobsolutionbd/mydian` আর
-   `openjobsolutionbd/mydian-vault` — এই দুটো repo-র জন্যই request পাস
-   করে, বাকি সব `403` দিয়ে বাতিল করে। `env.ALLOWED_REPOS` (কমা-সেপারেটেড
-   `owner/repo` লিস্ট) দিয়ে override করা যায়, না থাকলে এই দুটো
-   default হিসেবে allow হয়। **⚠️ এই ফিক্স effective হতে
-   `wrangler deploy` লাগবে (উপরের সতর্কতা দেখুন)।**
-2. **🟠 [Data loss risk] Service worker auto-update ইউজার টাইপ করা
-   অবস্থায় জোর করে reload করত (`app.js`):** নতুন deploy detect হলে
-   `controllerchange` event-এ সরাসরি `window.location.reload()` কল
-   হতো, কোনো unsaved change বা in-flight save চেক ছাড়াই। ইউজার যদি
-   ঠিক সেই মুহূর্তে টাইপ করছিল আর নতুন deploy এসে যেত, সাম্প্রতিক
-   পরিবর্তন হারিয়ে যেতে পারত কোনো সতর্কতা ছাড়াই। **সমাধান:**
-   `safeReloadForUpdate()` এখন প্রথমে চলমান/pending save শেষ হওয়ার
-   জন্য সর্বোচ্চ ৫ সেকেন্ড অপেক্ষা করে, এরপরও `isDirty` true থাকলে
-   ইউজারকে confirm করে জিজ্ঞেস করে, "না" বললে reload বাতিল করে দেয়
-   (পরের update check-এ আবার চেষ্টা হবে)।
-3. **🟠 [Data loss risk] ডিলিট করার সময় pending save race condition
-   (`app.js`):** ইউজার একটা ফাইলে টাইপ করার পরপরই (৩০০ms debounce
-   window-এর ভেতরে) সেই একই ফাইল ডিলিট করলে, pending debounced save
-   timer তখনও চলত এবং ডিলিটের **পরেও** সেই পাথে PUT পাঠিয়ে ফাইলটা
-   অনিচ্ছাকৃতভাবে আবার তৈরি করে ফেলত। **সমাধান:** `cancelPendingSave()`
-   হেল্পার যোগ করা হয়েছে, এখন `openFile()` (ফাইল বদলানোর সময়),
-   `closeEditor()`, `deleteFileNode()`, এবং `deleteFolder()` — সবগুলোতে
-   এটা কল হয়।
-4. **🟠 [Silent data hiding] `fetchTree()`-এ HTTP 409-কে ভুলভাবে "খালি
-   repo" ধরা হতো (`js/api.js`):** GitHub-এর `git/trees` API খালি
-   repo/branch-এ 404 দেয় (409 না)। আগে কোড 409-কেও 404-এর মতো "কোনো
-   ফাইল নেই" ধরে silently `[]` রিটার্ন করত। ফলে কোনো genuine API
-   error/conflict (409) হলে ইউজার sidebar-এ "এখনো কোনো ফাইল নেই" দেখতেন
-   — মনে হতে পারত তার সব নোট হারিয়ে গেছে, যেখানে আসলে শুধু একটা
-   সাময়িক fetch সমস্যা হয়েছিল। **সমাধান:** শুধু 404-কেই "খালি" ধরা হয়,
-   অন্য সব non-OK status এখন স্পষ্ট error ছোঁড়ে (status code সহ)।
-5. **🟡 [UX] Save conflict (409) এ cryptic raw GitHub error দেখাত, আর
-   ক্রমাগত ব্যর্থ retry লুপ হতে পারত (`js/api.js` + `app.js`):**
-   `putFile()`-এ 409 (মানে ফাইলটা অন্য কোথাও থেকে ইতিমধ্যে বদলে গেছে)
-   এলে raw GitHub JSON error মেসেজ (ইংরেজি, cryptic) দেখাত। এছাড়া
-   `flushSave()`-এ error হলেও `pendingSaveContent` থাকলে সেটা দিয়ে
-   again `flushSave()` কল হতো — কিন্তু ৪০৯-এর ক্ষেত্রে পুরনো sha দিয়ে
-   retry করলে সেটাও নিশ্চিতভাবে আবার ব্যর্থ হতো, আর ইউজার টাইপ করতে
-   থাকলে প্রতিটা keystroke একটা নতুন নিশ্চিত-ব্যর্থ retry ট্রিগার করত।
-   **সমাধান:** 409-এ এখন স্পষ্ট বাংলা মেসেজ ("ফাইলটা অন্য কোথাও থেকে
-   বদলে গেছে, রিফ্রেশ করুন") এবং retry চেইন থামিয়ে `alert()` দিয়ে
-   ইউজারকে জানানো হয়। `setSaveIndicator()`-এ এখন optional detail
-   (title/tooltip হিসেবে) দেখানো যায়, তাই error শুধু console-এ আটকে
-   থাকে না।
-6. **🟡 [UX polish] `sw.js`-এর একটা comment পুরনো/ভুল তথ্য বলছিল** —
-   এখনো "CDN থেকে CodeMirror" বলছিল যেখানে editor.js এখন local bundle।
-   ফাংশনাল bug না, শুধু stale documentation — ঠিক করা হয়েছে।
+**এই রাউন্ডে যা পাওয়া ও ঠিক হয়েছে:**
+1. **🔴 [Security-adjacent] নতুন ফাইল/ফোল্ডারের নাম আর attachment
+   filename sanitize হতো না (`app.js`):** "নতুন ফাইল" মোডালে বা
+   attachment আপলোডে ইউজার/ফাইল-সিস্টেম থেকে আসা নামে `/` বা `../`
+   থাকলে সেটা সরাসরি path-এ জোড়া লেগে যেত (যেমন
+   `${targetFolder}/${file.name}`)। এতে টাইপ করে বা কোনো অস্বাভাবিক
+   ফাইলনাম দিয়ে (কিছু OS/browser সোর্স থেকে বিরল ক্ষেত্রে সম্ভব)
+   উদ্দিষ্ট ফোল্ডারের বাইরে গিয়ে vault-এর অন্য জায়গায় ফাইল কমিট করে
+   ফেলা সম্ভব ছিল — একধরনের path-traversal bug। **সমাধান:**
+   `sanitizeFilename()` হেল্পার যোগ করা হয়েছে (path separator বাদ
+   দেয়, leading dots সরায়, filesystem-এ সমস্যাযুক্ত ক্যারেক্টার
+   বদলে দেয়) — এখন নতুন ফাইল/ফোল্ডার তৈরির ৪টা call site এবং
+   attachment upload — সবগুলোতেই প্রয়োগ করা হয়েছে।
+2. **🟡 [UI bug] নতুন-ফাইল মোডাল আর সেটিংস মোডাল একসাথে stack হতে
+   পারত:** দুটোই আলাদা `.modal-overlay` (একই z-index), কিন্তু কেউ
+   কাউকে চেক/বন্ধ করত না। সেটিংস খোলা রেখে sidebar-এর "+"-এ ক্লিক
+   করলে (বা উল্টোটা) দুটো overlay একসাথে দেখা যেত। **সমাধান:**
+   `openModal()` আর সেটিংস `click` handler — দুটোই এখন অন্যটাকে বন্ধ
+   করে দেয় প্রথমে।
+3. **🟡 [UX inconsistency] সেটিংস মোডালে Escape কাজ করত না:**
+   নতুন-ফাইল মোডালে Escape দিয়ে বন্ধ করা যেত, কিন্তু সেটিংস মোডালে
+   শুধু ক্লিক/বাটনেই বন্ধ করা যেত। এখন একটা global `keydown` listener
+   দিয়ে সেটিংস মোডালেও Escape কাজ করে।
 
 **নোট করা কিন্তু ফিক্স করা হয়নি (আরও hardening সম্ভাবনা):**
-`corsHeaders()`-এ এখনো `Origin` না থাকলে `*` fallback আছে। এখন যেহেতু
-repo-level allowlist যোগ হয়েছে, এটার ঝুঁকি অনেক কমে গেছে, কিন্তু
-ভবিষ্যতে নির্দিষ্ট origin-ও allowlist করা আরও ভালো practice হবে।
+`corsHeaders()`-এ এখনো `Origin` না থাকলে `*` fallback আছে (আগের
+রাউন্ডেও নোট করা হয়েছিল)।
 
 **আগের রাউন্ডগুলোতে যা ঠিক হয়েছিল (কালানুক্রমে, নতুন থেকে পুরনো):**
-- সেটিংস বাটন dead ছিল + লগ আউট করার উপায় ছিল না → ফিক্স হয়েছে
-- এডিটর decoration crash risk (mark+replace overlap) → ফিক্স হয়েছে
-- `createFolder()` অদ্ভুতভাবে `.gitkeep` এডিটরে খুলে ফেলত → ফিক্স হয়েছে
-- `.gitkeep` sidebar-এ দেখা যেত → ফিক্স হয়েছে
-- Save race condition (409 ঝুঁকি) → প্রথম রাউন্ডে আংশিক ফিক্স, এই
-  রাউন্ডে আরও শক্তিশালী করা হয়েছে (উপরে ৩ ও ৫ দেখুন)
-- `fetchTree()` truncated response silently miss করত → ফিক্স হয়েছে
-- এডিটর area zero-height CSS bug + createFile race condition → ফিক্স
-- `PROJECT_NOTES.md` তৈরি
+- 🔴 [Security] GitHub প্রক্সি সম্পূর্ণ open-ended ছিল, repo allowlist
+  যোগ করা হয়েছে (⚠️ `wrangler deploy` লাগবে effective হতে)
+- 🟠 SW auto-update টাইপ করা অবস্থায় জোর করে reload করত (data loss risk)
+- 🟠 ডিলিট করার সময় pending save race condition (data loss risk)
+- 🟠 `fetchTree()`-এ 409 কে ভুলভাবে "খালি repo" ধরা হতো
+- 🟡 Save conflict (409) এ cryptic error + infinite retry loop ঝুঁকি
+- সেটিংস বাটন dead ছিল + লগ আউট করার উপায় ছিল না
+- এডিটর decoration crash risk (mark+replace overlap)
+- `createFolder()` অদ্ভুতভাবে `.gitkeep` এডিটরে খুলে ফেলত
+- `.gitkeep` sidebar-এ দেখা যেত
+- Save race condition (প্রথম আংশিক ফিক্স)
+- এডিটর area zero-height CSS bug + createFile race condition
 - CodeMirror CDN থেকে local bundle-এ সরানো হয়েছে
 - Obsidian-স্টাইল ফাইল টাইটেল যোগ
 - অ্যাপ কোড আর নোট ডেটা আলাদা রিপোতে (`mydian-vault`)
 - `WORKER_URL` placeholder ফিক্স
 - `[hidden]` CSS specificity bug ফিক্স
-- Service worker cache bug (নতুন deploy পুরনো cache দেখাত) ফিক্স
+- Service worker cache bug ফিক্স
 
 বিস্তারিত প্রতিটা সমস্যার জন্য নিচে সেকশন ৩ দেখুন।
 
