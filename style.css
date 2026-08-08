@@ -54,6 +54,14 @@ input {
 }
 
 /* ============ Login screen ============ */
+/* গুরুত্বপূর্ণ: [hidden] attribute-এর specificity কম, তাই .app/.modal-overlay/
+   .login-screen-এর মতো display:flex রুলগুলো cascade-এ [hidden]-কে override
+   করে ফেলতে পারে (একই specificity হলে পরের রুল জেতে)। তাই এখানে explicit
+   override দেওয়া হলো যাতে hidden attribute বসালে উপাদানটা সত্যিই লুকায়। */
+[hidden] {
+  display: none !important;
+}
+
 .login-screen {
   height: 100vh;
   display: flex;
