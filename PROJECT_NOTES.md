@@ -10,67 +10,98 @@
 
 ## ০. সর্বশেষ অবস্থা (এই সেকশনটা প্রতিটা কাজের পর আপডেট হবে)
 
-**সর্বশেষ commit:** আরও ৩টা bug fix — এডিটর decoration crash risk,
-dead সেটিংস বাটন, এবং লগ আউট ফিচার না থাকা
+**সর্বশেষ commit:** গভীর কোড রিভিউ থেকে পাওয়া ৬টা bug fix, যার মধ্যে
+একটা security-critical (নিচে দেখুন)
 **তারিখ:** ২০২৬-০৮-০৮
-**অবস্থা:** ইউজার "সব বাগ ঠিক করো" বলার পর পুরো কোডবেস (`app.js`,
-`js/api.js`, `js/tree.js`, `js/editor.js` সোর্স, `worker/worker.js`,
-`index.html`, `sw.js`) আবার সম্পূর্ণ রিভিউ করা হয়েছে। এই মুহূর্তে কোনো
-known bug pending নেই।
 
-**এই রাউন্ডে যা পাওয়া ও ঠিক হয়েছে:**
-1. **এডিটর লাইভ-প্রিভিউ স্টাইলিং সাইলেন্টলি বন্ধ হয়ে যাওয়ার ঝুঁকি
-   (`js/editor.js`-এর `buildDecorations()`):** `Decoration.mark` আর
-   `Decoration.replace` একই exact range-এ (`Link` node আর তার ভেতরের
-   coincident `LinkMark`/`URL` child) থাকলে CodeMirror-এর `RangeSet`
-   এটাকে invalid ওভারল্যাপ হিসেবে গণ্য করে exception ছুঁড়তে পারে। এটা
-   আগে থেকে থাকা catch-all `try/catch`-এ ধরা পড়ে পুরো
-   `Decoration.none` রিটার্ন করত — মানে এডিটর কাজ করত (টাইপ করা যেত),
-   কিন্তু heading/bold/link ইত্যাদি কোনো ভিজ্যুয়াল স্টাইলিং আসত না,
-   কোনো error ছাড়াই। সমাধান: exact-range-এ ওভারল্যাপ করা `mark`
-   decoration বাদ দেওয়া হয়েছে যখন সেই একই range-এ একটা `replace`
-   decoration থাকে (`replace` জেতে, কারণ সেই টেক্সট আদৌ দেখা যাবে না)।
-   **এই ফিক্সের জন্য bundle পুনরায় জেনারেট করতে হয়েছে** —
-   `/home/claude/editor-build/editor-src.js` (readable source) থেকে
-   esbuild দিয়ে rebuild করে `js/editor.js`-এ কপি করা হয়েছে (bundle
-   regenerate করার প্রক্রিয়া সেকশন ৩.৫-এ আছে)।
-2. **"সেটিংস" বাটন dead ছিল:** `index.html`-এ `#btn-settings` বাটন
-   ছিল, কিন্তু `app.js`-এ এটার জন্য কোনো click listener ছিলই না —
-   ক্লিক করলে কিছুই হতো না। এখন এটাতে একটা ছোট settings modal খোলে
-   (vault info দেখায়)।
-3. **লগ আউট করার কোনো উপায় ছিল না:** `js/api.js`-এ `clearSession()`
-   ফাংশন থাকলেও পুরো অ্যাপে কোথাও এটা UI থেকে কল হতো না — session
-   token লগইনের পর localStorage-এ চিরকাল থেকে যেত, ইউজার ইচ্ছা করলেও
-   বের হতে পারতেন না। সমাধান: সেটিংস মোডালে "লগ আউট" বাটন যোগ করা
-   হয়েছে (confirm করার পর session clear করে reload করে)।
+> ⚠️ **এই আপডেটের একটা অংশের জন্য শুধু GitHub push যথেষ্ট না —**
+> `worker/worker.js`-এ একটা security fix করা হয়েছে, কিন্তু Cloudflare
+> **Worker আলাদাভাবে deploy করতে হয়** (`wrangler deploy` দিয়ে), Pages-এর
+> মতো GitHub push হলেই auto-deploy হয় না। যতক্ষণ না ম্যানুয়ালি
+> `wrangler deploy` চালানো হচ্ছে, ততক্ষণ পুরনো (কম নিরাপদ) Worker কোডই
+> লাইভ থাকবে। **এই ধাপটা বাকি আছে কিনা যাচাই করে নেওয়া জরুরি।**
 
-**নোট করা কিন্তু ফিক্স করা হয়নি (security hardening, bug না):**
-`worker/worker.js`-এর `corsHeaders()`-এ `Origin` header না থাকলে `*`
-wildcard-এ fallback করে। Session token আলাদাভাবে verify হয় বলে এটা
-critical না, তবে ভবিষ্যতে নির্দিষ্ট origin allowlist করা ভালো অভ্যাস
-হবে (যেমন শুধু `mydian-tei.pages.dev`)।
+**এই রাউন্ডে ইউজার "খুব গভীরভাবে বাগ খুঁজ" বলার পর যা পাওয়া গেছে:**
 
-**এর আগের রাউন্ডে (গত commit) যা ঠিক হয়েছিল:**
-1. `createFolder()` অদ্ভুতভাবে `.gitkeep` ফাইল এডিটরে খুলে ফেলত
-2. `.gitkeep` ফাইল sidebar-এ ভুতুড়ে ফাইলের মতো দেখা যেত
-3. সেভ করার সময় race condition (409 Conflict-এর ঝুঁকি)
-4. `fetchTree()` বড় repo-তে ফাইল silently miss করতে পারত
+1. **🔴 [Security] GitHub প্রক্সি সম্পূর্ণ open-ended ছিল
+   (`worker/worker.js`):** `/api/github/<path>` — এই প্রক্সি এন্ডপয়েন্টে
+   কোনো repo allowlist ছিল না। মানে একবার valid session token থাকলে
+   (যেমন legitimate PIN লগইনের পর), সেই টোকেন দিয়ে **`GITHUB_TOKEN`
+   যেকোনো repo-তে access রাখে তার যেকোনোটাতেই** (এই টোকেন `mydian` কোড
+   repo এবং `mydian-vault` ডেটা repo — দুটোতেই Read/write access রাখে)
+   read/write request পাঠানো সম্ভব ছিল, ইউজারের নিজের vault ছাড়াও।
+   অর্থাৎ session token leak হলে অ্যাপের নিজের কোড repo-ও (`mydian`)
+   ওভাররাইট করা সম্ভব ছিল। **সমাধান:** `isAllowedRepo()` হেল্পার যোগ
+   করা হয়েছে যেটা শুধু `openjobsolutionbd/mydian` আর
+   `openjobsolutionbd/mydian-vault` — এই দুটো repo-র জন্যই request পাস
+   করে, বাকি সব `403` দিয়ে বাতিল করে। `env.ALLOWED_REPOS` (কমা-সেপারেটেড
+   `owner/repo` লিস্ট) দিয়ে override করা যায়, না থাকলে এই দুটো
+   default হিসেবে allow হয়। **⚠️ এই ফিক্স effective হতে
+   `wrangler deploy` লাগবে (উপরের সতর্কতা দেখুন)।**
+2. **🟠 [Data loss risk] Service worker auto-update ইউজার টাইপ করা
+   অবস্থায় জোর করে reload করত (`app.js`):** নতুন deploy detect হলে
+   `controllerchange` event-এ সরাসরি `window.location.reload()` কল
+   হতো, কোনো unsaved change বা in-flight save চেক ছাড়াই। ইউজার যদি
+   ঠিক সেই মুহূর্তে টাইপ করছিল আর নতুন deploy এসে যেত, সাম্প্রতিক
+   পরিবর্তন হারিয়ে যেতে পারত কোনো সতর্কতা ছাড়াই। **সমাধান:**
+   `safeReloadForUpdate()` এখন প্রথমে চলমান/pending save শেষ হওয়ার
+   জন্য সর্বোচ্চ ৫ সেকেন্ড অপেক্ষা করে, এরপরও `isDirty` true থাকলে
+   ইউজারকে confirm করে জিজ্ঞেস করে, "না" বললে reload বাতিল করে দেয়
+   (পরের update check-এ আবার চেষ্টা হবে)।
+3. **🟠 [Data loss risk] ডিলিট করার সময় pending save race condition
+   (`app.js`):** ইউজার একটা ফাইলে টাইপ করার পরপরই (৩০০ms debounce
+   window-এর ভেতরে) সেই একই ফাইল ডিলিট করলে, pending debounced save
+   timer তখনও চলত এবং ডিলিটের **পরেও** সেই পাথে PUT পাঠিয়ে ফাইলটা
+   অনিচ্ছাকৃতভাবে আবার তৈরি করে ফেলত। **সমাধান:** `cancelPendingSave()`
+   হেল্পার যোগ করা হয়েছে, এখন `openFile()` (ফাইল বদলানোর সময়),
+   `closeEditor()`, `deleteFileNode()`, এবং `deleteFolder()` — সবগুলোতে
+   এটা কল হয়।
+4. **🟠 [Silent data hiding] `fetchTree()`-এ HTTP 409-কে ভুলভাবে "খালি
+   repo" ধরা হতো (`js/api.js`):** GitHub-এর `git/trees` API খালি
+   repo/branch-এ 404 দেয় (409 না)। আগে কোড 409-কেও 404-এর মতো "কোনো
+   ফাইল নেই" ধরে silently `[]` রিটার্ন করত। ফলে কোনো genuine API
+   error/conflict (409) হলে ইউজার sidebar-এ "এখনো কোনো ফাইল নেই" দেখতেন
+   — মনে হতে পারত তার সব নোট হারিয়ে গেছে, যেখানে আসলে শুধু একটা
+   সাময়িক fetch সমস্যা হয়েছিল। **সমাধান:** শুধু 404-কেই "খালি" ধরা হয়,
+   অন্য সব non-OK status এখন স্পষ্ট error ছোঁড়ে (status code সহ)।
+5. **🟡 [UX] Save conflict (409) এ cryptic raw GitHub error দেখাত, আর
+   ক্রমাগত ব্যর্থ retry লুপ হতে পারত (`js/api.js` + `app.js`):**
+   `putFile()`-এ 409 (মানে ফাইলটা অন্য কোথাও থেকে ইতিমধ্যে বদলে গেছে)
+   এলে raw GitHub JSON error মেসেজ (ইংরেজি, cryptic) দেখাত। এছাড়া
+   `flushSave()`-এ error হলেও `pendingSaveContent` থাকলে সেটা দিয়ে
+   again `flushSave()` কল হতো — কিন্তু ৪০৯-এর ক্ষেত্রে পুরনো sha দিয়ে
+   retry করলে সেটাও নিশ্চিতভাবে আবার ব্যর্থ হতো, আর ইউজার টাইপ করতে
+   থাকলে প্রতিটা keystroke একটা নতুন নিশ্চিত-ব্যর্থ retry ট্রিগার করত।
+   **সমাধান:** 409-এ এখন স্পষ্ট বাংলা মেসেজ ("ফাইলটা অন্য কোথাও থেকে
+   বদলে গেছে, রিফ্রেশ করুন") এবং retry চেইন থামিয়ে `alert()` দিয়ে
+   ইউজারকে জানানো হয়। `setSaveIndicator()`-এ এখন optional detail
+   (title/tooltip হিসেবে) দেখানো যায়, তাই error শুধু console-এ আটকে
+   থাকে না।
+6. **🟡 [UX polish] `sw.js`-এর একটা comment পুরনো/ভুল তথ্য বলছিল** —
+   এখনো "CDN থেকে CodeMirror" বলছিল যেখানে editor.js এখন local bundle।
+   ফাংশনাল bug না, শুধু stale documentation — ঠিক করা হয়েছে।
 
-**এর আগে যা হয়েছিল (কালানুক্রমে, নতুন থেকে পুরনো):**
-1. এডিটর area zero-height CSS bug + createFile race condition ফিক্স
-2. `PROJECT_NOTES.md` তৈরি — এই ডকুমেন্ট
-3. CodeMirror এডিটর CDN থেকে সরিয়ে local bundle করা হয়েছে (`js/editor.js`
-   এখন esbuild দিয়ে বান্ডলড, কোনো runtime CDN নির্ভরতা নেই) — কারণ CDN
-   import সাইলেন্টলি ফেইল করে এডিটর area খালি দেখাচ্ছিল
-4. Obsidian-স্টাইল ফাইল টাইটেল (বড় হেডিং, ফাইলের নাম) যোগ করা হয়েছে
-5. অ্যাপ কোড আর নোট ডেটা আলাদা করা হয়েছে — নতুন `mydian-vault` রিপো
-   তৈরি করে ডেটা storage হিসেবে সেট করা হয়েছে
-6. `WORKER_URL` placeholder ঠিক করে আসল Worker URL বসানো হয়েছে (লগইন
-   কাজ করছিল না এই কারণে)
-7. `[hidden]` CSS specificity bug ঠিক করা হয়েছে (মোডাল/লগইন স্ক্রিন
-   একসাথে দেখাচ্ছিল)
-8. Service worker cache bug ঠিক করা হয়েছে (নতুন deploy পুরনো cache-এর
-   কারণে দেখা যাচ্ছিল না)
+**নোট করা কিন্তু ফিক্স করা হয়নি (আরও hardening সম্ভাবনা):**
+`corsHeaders()`-এ এখনো `Origin` না থাকলে `*` fallback আছে। এখন যেহেতু
+repo-level allowlist যোগ হয়েছে, এটার ঝুঁকি অনেক কমে গেছে, কিন্তু
+ভবিষ্যতে নির্দিষ্ট origin-ও allowlist করা আরও ভালো practice হবে।
+
+**আগের রাউন্ডগুলোতে যা ঠিক হয়েছিল (কালানুক্রমে, নতুন থেকে পুরনো):**
+- সেটিংস বাটন dead ছিল + লগ আউট করার উপায় ছিল না → ফিক্স হয়েছে
+- এডিটর decoration crash risk (mark+replace overlap) → ফিক্স হয়েছে
+- `createFolder()` অদ্ভুতভাবে `.gitkeep` এডিটরে খুলে ফেলত → ফিক্স হয়েছে
+- `.gitkeep` sidebar-এ দেখা যেত → ফিক্স হয়েছে
+- Save race condition (409 ঝুঁকি) → প্রথম রাউন্ডে আংশিক ফিক্স, এই
+  রাউন্ডে আরও শক্তিশালী করা হয়েছে (উপরে ৩ ও ৫ দেখুন)
+- `fetchTree()` truncated response silently miss করত → ফিক্স হয়েছে
+- এডিটর area zero-height CSS bug + createFile race condition → ফিক্স
+- `PROJECT_NOTES.md` তৈরি
+- CodeMirror CDN থেকে local bundle-এ সরানো হয়েছে
+- Obsidian-স্টাইল ফাইল টাইটেল যোগ
+- অ্যাপ কোড আর নোট ডেটা আলাদা রিপোতে (`mydian-vault`)
+- `WORKER_URL` placeholder ফিক্স
+- `[hidden]` CSS specificity bug ফিক্স
+- Service worker cache bug (নতুন deploy পুরনো cache দেখাত) ফিক্স
 
 বিস্তারিত প্রতিটা সমস্যার জন্য নিচে সেকশন ৩ দেখুন।
 
@@ -278,6 +309,20 @@ cp editor.bundle.js ../mydian/js/editor.js
   ম্যানুয়ালি সেই repo যোগ করতে হবে, নাহলে 403/404 error আসবে।
 - **কোনো automated test নেই:** এই প্রজেক্টে unit/integration test সেটআপ
   করা নেই। পরিবর্তনের পর ম্যানুয়ালি ব্রাউজারে verify করাই একমাত্র উপায়।
+- **⚠️ `worker/worker.js`-এ পরিবর্তন GitHub push-এ deploy হয় না:**
+  Cloudflare Pages GitHub push হলেই auto-deploy করে, কিন্তু Cloudflare
+  **Worker** সম্পূর্ণ আলাদা জিনিস — এটা deploy করতে ম্যানুয়ালি
+  `wrangler deploy` চালাতে হয় (Worker-এর ডিরেক্টরি থেকে, `wrangler.toml`
+  যেখানে আছে)। `worker.js`-এ যেকোনো ফিক্স/পরিবর্তন করার পর এটা মনে করিয়ে
+  দেওয়া জরুরি, নাহলে ইউজার ভাবতে পারেন ফিক্স "হয়ে গেছে" কিন্তু আসলে
+  পুরনো কোডই লাইভ থাকবে।
+- **`isAllowedRepo()` allowlist ম্যানুয়ালি sync রাখতে হবে:**
+  `worker/worker.js`-এর `DEFAULT_ALLOWED_REPOS`-এ এখন
+  `openjobsolutionbd/mydian` আর `openjobsolutionbd/mydian-vault`
+  hardcoded আছে। ভবিষ্যতে যদি vault repo-র নাম বদলায় বা নতুন কোনো repo
+  (যেমন দ্বিতীয় vault) যোগ হয়, এই লিস্টও আপডেট করতে হবে — নাহলে proxy
+  403 দিয়ে সব request প্রত্যাখ্যান করবে। বিকল্পভাবে `env.ALLOWED_REPOS`
+  secret/var সেট করে override করা যায় কোড না ছুঁয়েই।
 
 ---
 
