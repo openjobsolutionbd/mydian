@@ -83,19 +83,23 @@ Worker-এর `GITHUB_TOKEN` (fine-grained personal access token) কে
 
 ---
 
-## ৩. গুরুত্বপূর্ণ প্যাটার্ন — সংক্ষিপ্ত (পুরো ইতিহাস `HISTORY.md`-এ)
+## ৩. গুরুত্বপূর্ণ নিয়ম ও সীমাবদ্ধতা (পুরো ইতিহাস `HISTORY.md`-এ)
 
-- **SW cache:** `BUILD_ID` না বদলালে নতুন deploy পুরনো ভার্সন সার্ভ করতে
-  থাকে। এখন `scripts/bump-build-id.sh` দিয়ে অটো হয় (সেকশন ৫ দেখুন)।
+- **`BUILD_ID` স্বয়ংক্রিয়:** আগে হাতে বদলাতে হতো, এখন
+  `scripts/bump-build-id.sh` চালালেই বর্তমান তারিখ+সময় দিয়ে `sw.js`-এর
+  `BUILD_ID` আপডেট হয়ে যায় (না বদলালে নতুন deploy পুরনো ভার্সন সার্ভ করতে
+  থাকে)। **নিয়ম: প্রতিবার push করার আগে Claude এই স্ক্রিপ্টটা রুটিন
+  হিসেবে চালাবে**, তারপর commit-এ `sw.js`-এর পরিবর্তনও যোগ হবে।
 - **`[hidden]` attribute:** `style.css`-এর শুরুতে
   `[hidden] { display: none !important; }` রুলটা কখনো সরানো/override
   করা যাবে না — নাহলে একাধিক স্ক্রিন একসাথে দেখা যেতে পারে।
 - **`js/api.js`-এর `WORKER_URL`:** হার্ডকোড করা আছে
   (`https://notes-app-worker.openjobsolutionbd.workers.dev`)। Worker
   নতুন করে deploy করে URL বদলালে এখানে ম্যানুয়ালি আপডেট করতে হবে।
-- **কোড আর ডেটা রিপো আলাদা** — বিস্তারিত উপরে সেকশন ২-এ।
-- **`js/editor.js` এখন bundled + minified** — কখনো ম্যানুয়ালি এডিট করা
-  যাবে না (পড়া প্রায় অসম্ভব)। বদলাতে হলে:
+- **কোড আর ডেটা রিপো আলাদা** — বিস্তারিত উপরে সেকশন ২-এ, কখনো ভাঙা
+  যাবে না।
+- **`js/editor.js` bundled + minified** — কখনো ম্যানুয়ালি এডিট করা যাবে
+  না (পড়া প্রায় অসম্ভব)। বদলাতে/আপডেট করতে হলে:
   ```bash
   mkdir editor-build && cd editor-build
   npm init -y
@@ -110,6 +114,24 @@ Worker-এর `GITHUB_TOKEN` (fine-grained personal access token) কে
   ```
   **কোনো runtime CDN নির্ভরতা রাখা যাবে না** — আগে esm.sh থেকে live
   import করায় এডিটর সাইলেন্টলি ফেইল করত (খালি স্ক্রিন, কোনো error না)।
+- **GitHub token permission:** fine-grained token-টা `mydian` এবং
+  `mydian-vault` — দুটো নির্দিষ্ট repo-তে scope করা আছে। নতুন কোনো repo
+  যোগ হলে token permission-এও ম্যানুয়ালি সেই repo যোগ করতে হবে, নাহলে
+  403/404 error আসবে।
+- **কোনো automated test নেই** — পরিবর্তনের পর ম্যানুয়ালি ব্রাউজারে
+  verify করাই একমাত্র উপায়।
+- **⚠️ `worker/worker.js`-এ পরিবর্তন GitHub push-এ deploy হয় না:**
+  Cloudflare Pages GitHub push হলেই auto-deploy করে, কিন্তু Cloudflare
+  **Worker** সম্পূর্ণ আলাদা — deploy করতে ম্যানুয়ালি `wrangler deploy`
+  চালাতে হয় (`worker/` ডিরেক্টরি থেকে)। `worker.js`-এ কোনো ফিক্স করার
+  পর এটা মনে করিয়ে দেওয়া জরুরি, নাহলে ইউজার ভাবতে পারেন ফিক্স হয়ে গেছে
+  কিন্তু পুরনো কোডই লাইভ থাকবে।
+- **`isAllowedRepo()` allowlist ম্যানুয়ালি sync রাখতে হবে:**
+  `worker/worker.js`-এর `DEFAULT_ALLOWED_REPOS`-এ এখন
+  `openjobsolutionbd/mydian` আর `openjobsolutionbd/mydian-vault`
+  hardcoded আছে। নতুন repo যোগ হলে এই লিস্টও আপডেট করতে হবে — নাহলে
+  proxy 403 দিয়ে সব request প্রত্যাখ্যান করবে। বিকল্পভাবে
+  `env.ALLOWED_REPOS` secret/var সেট করে override করা যায়।
 
 ---
 
@@ -137,45 +159,7 @@ Worker-এর `GITHUB_TOKEN` (fine-grained personal access token) কে
 
 ---
 
-## ৫. জানা সীমাবদ্ধতা / ভবিষ্যতে যা খেয়াল রাখা উচিত
-
-- **`BUILD_ID` এখন স্বয়ংক্রিয় (২০২৬-০৮-০৯ থেকে):** আগে হাতে বদলাতে হতো,
-  এখন `scripts/bump-build-id.sh` চালালেই বর্তমান তারিখ+সময় দিয়ে
-  `sw.js`-এর `BUILD_ID` আপডেট হয়ে যায়। **নিয়ম: প্রতিবার push করার আগে এই
-  স্ক্রিপ্টটা চালাতে হবে**, তারপর commit-এ `sw.js`-এর পরিবর্তনও যোগ করতে
-  হবে। (Claude নিজে এখন থেকে প্রতি push-এর আগে এটা রুটিন হিসেবে চালাবে।)
-- **`WORKER_URL` হার্ডকোড:** `js/api.js`-এ সরাসরি বসানো। Worker URL
-  বদলালে এটা ম্যানুয়ালি আপডেট করতে হবে।
-- **`js/editor.js` bundle পুরনো হয়ে যেতে পারে:** CodeMirror-এর নতুন
-  ভার্সন/security fix এলে bundle regenerate করে replace করতে হবে (উপরে
-  সেকশন ৩-এ প্রক্রিয়া দেওয়া আছে)। npm-ভিত্তিক dependency versions:
-  `@codemirror/view@6.34.1`, `@codemirror/state@6.4.1`,
-  `@codemirror/commands@6.7.1`, `@codemirror/lang-markdown@6.3.1`,
-  `@codemirror/language@6.10.6`।
-- **GitHub token permission:** fine-grained token-টা `mydian` এবং
-  `mydian-vault` — দুটো নির্দিষ্ট repo-তে scope করা আছে। নতুন কোনো repo
-  (যেমন ভবিষ্যতে multi-vault ফিচার হলে) যোগ হলে token permission-এও
-  ম্যানুয়ালি সেই repo যোগ করতে হবে, নাহলে 403/404 error আসবে।
-- **কোনো automated test নেই:** এই প্রজেক্টে unit/integration test সেটআপ
-  করা নেই। পরিবর্তনের পর ম্যানুয়ালি ব্রাউজারে verify করাই একমাত্র উপায়।
-- **⚠️ `worker/worker.js`-এ পরিবর্তন GitHub push-এ deploy হয় না:**
-  Cloudflare Pages GitHub push হলেই auto-deploy করে, কিন্তু Cloudflare
-  **Worker** সম্পূর্ণ আলাদা জিনিস — এটা deploy করতে ম্যানুয়ালি
-  `wrangler deploy` চালাতে হয় (Worker-এর ডিরেক্টরি থেকে, `wrangler.toml`
-  যেখানে আছে)। `worker.js`-এ যেকোনো ফিক্স/পরিবর্তন করার পর এটা মনে করিয়ে
-  দেওয়া জরুরি, নাহলে ইউজার ভাবতে পারেন ফিক্স "হয়ে গেছে" কিন্তু আসলে
-  পুরনো কোডই লাইভ থাকবে।
-- **`isAllowedRepo()` allowlist ম্যানুয়ালি sync রাখতে হবে:**
-  `worker/worker.js`-এর `DEFAULT_ALLOWED_REPOS`-এ এখন
-  `openjobsolutionbd/mydian` আর `openjobsolutionbd/mydian-vault`
-  hardcoded আছে। ভবিষ্যতে যদি vault repo-র নাম বদলায় বা নতুন কোনো repo
-  (যেমন দ্বিতীয় vault) যোগ হয়, এই লিস্টও আপডেট করতে হবে — নাহলে proxy
-  403 দিয়ে সব request প্রত্যাখ্যান করবে। বিকল্পভাবে `env.ALLOWED_REPOS`
-  secret/var সেট করে override করা যায় কোড না ছুঁয়েই।
-
----
-
-## ৬. সাধারণ ডিবাগিং চেকলিস্ট (ভবিষ্যতে সমস্যা হলে)
+## ৫. সাধারণ ডিবাগিং চেকলিস্ট (ভবিষ্যতে সমস্যা হলে)
 
 1. **কিছুই আপডেট হচ্ছে না মনে হলে:** হার্ড রিফ্রেশ (Ctrl+Shift+R) করে
    দেখুন প্রথমে — SW auto-update থাকলেও browser tab bfcache ইত্যাদির
@@ -197,7 +181,7 @@ Worker-এর `GITHUB_TOKEN` (fine-grained personal access token) কে
 
 ---
 
-## ৭. ইউজার সম্পর্কে জরুরি প্রেক্ষাপট (সংক্ষিপ্ত — পূর্ণ বিবরণ `HISTORY.md`)
+## ৬. ইউজার সম্পর্কে জরুরি প্রেক্ষাপট (সংক্ষিপ্ত — পূর্ণ বিবরণ `HISTORY.md`)
 
 - ইউজার প্রোগ্রামার না, টার্মিনালে নতুন। **লম্বা টেকনিক্যাল ব্যাখ্যা
   না দিয়ে সরাসরি কাজ করা ফলাফল দেখানো** — এটাই মূল নিয়ম।
