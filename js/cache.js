@@ -122,3 +122,26 @@ export async function clearAll() {
     return false;
   }
 }
+
+// অটো ক্যাশ ম্যানেজমেন্ট — GitHub থেকে সর্বশেষ ফাইল-তালিকা সফলভাবে আনার
+// পর প্রতিবার এটা কল করলে, যেসব ফাইল আর GitHub-এ নেই (ডিলিট/রিনেম হয়ে
+// গেছে) তাদের পুরনো ক্যাশ এন্ট্রি নিজে থেকেই মুছে যায়। এতে ইউজারকে
+// কখনো ম্যানুয়ালি "ক্যাশ পরিষ্কার করুন" চাপতে হয় না — ক্যাশ সবসময়
+// স্বয়ংক্রিয়ভাবে বর্তমান ফাইল-তালিকার সাথে সিঙ্ক থাকে।
+export async function pruneToPaths(validPaths) {
+  try {
+    const db = await openDb();
+    const validSet = new Set(validPaths);
+    const tx = db.transaction(STORE_FILES, "readwrite");
+    const store = tx.objectStore(STORE_FILES);
+    const allKeys = await reqToPromise(store.getAllKeys());
+    for (const key of allKeys) {
+      if (!validSet.has(key)) {
+        store.delete(key);
+      }
+    }
+    return true;
+  } catch (err) {
+    return false;
+  }
+}

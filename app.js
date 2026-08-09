@@ -122,6 +122,10 @@ async function loadFileTree() {
     renderTree();
     setSyncStatus("online", "সিঙ্ক হয়েছে");
     cache.setTree(flatFiles);
+    // অটো ক্যাশ ম্যানেজমেন্ট: এখন যেসব ফাইল আসলেই GitHub-এ আছে তার
+    // তালিকার সাথে না মেলা পুরনো ক্যাশ এন্ট্রি (ডিলিট/রিনেম হয়ে যাওয়া
+    // ফাইলের) স্বয়ংক্রিয়ভাবে মুছে দেওয়া হয় — ম্যানুয়ালি কিছু করতে হয় না
+    cache.pruneToPaths(flatFiles.map((f) => f.path));
   } catch (err) {
     console.error(err);
     if (cachedFlat && cachedFlat.length) {
