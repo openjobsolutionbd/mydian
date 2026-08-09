@@ -8,9 +8,33 @@
 // ক্যাশ activate ধাপে মুছে ফেলবে। শেল ফাইলগুলো এখন network-first — মানে
 // নেট থাকলে সবসময় লেটেস্ট ভার্সন আনবে, শুধু network fail হলে cache fallback।
 
-const BUILD_ID = "2026-08-08-1"; // ডিপ্লয় করার সময় এই স্ট্রিং বদলে দিলেই cache invalidate হবে
+const BUILD_ID = "2026-08-09-1"; // ডিপ্লয় করার সময় এই স্ট্রিং বদলে দিলেই cache invalidate হবে
 const CACHE_NAME = `mydian-shell-${BUILD_ID}`;
-const SHELL_FILES = ["/", "/index.html", "/style.css", "/app.js", "/manifest.json"];
+
+// গুরুত্বপূর্ণ (বাগ ফিক্স ২০২৬-০৮-০৯): app.js শুরুতেই js/api.js, js/cache.js,
+// js/tree.js, js/editor.js — এই ৪টা ফাইল import করে (top-level ES module
+// import)। আগে এই তালিকায় শুধু index.html/style.css/app.js ছিল, এই js/*
+// ফাইলগুলো ছিল না — মানে offline অবস্থায় (network fail + browser-এর নিজস্ব
+// HTTP cache-এও না থাকলে, যেটা মোবাইলে কিছুদিন অ্যাপ না খুললে বা storage
+// pressure-এ চুপচাপ হতে পারে) app.js লোড হলেও এর ভেতরের import গুলো ব্যর্থ
+// হতো — আর top-level import ব্যর্থ হলে পুরো app.js-ই লোড হতে ব্যর্থ হয়, তাই
+// সম্পূর্ণ খালি সাদা স্ক্রিন দেখাত, "সংযোগ নেই" মেসেজ পর্যন্ত না (ঠিক
+// সেকশন ৩.৫-এ নথিভুক্ত CDN বাগের মতোই উপসর্গ, কিন্তু ট্রিগার এখানে অফলাইন
+// হওয়া)। আইকন দুটোও যোগ করা হয়েছে, যাতে ইনস্টল করা অ্যাপ অফলাইনেও নিজের
+// আইকন ঠিকমতো দেখাতে পারে।
+const SHELL_FILES = [
+  "/",
+  "/index.html",
+  "/style.css",
+  "/app.js",
+  "/manifest.json",
+  "/js/api.js",
+  "/js/cache.js",
+  "/js/tree.js",
+  "/js/editor.js",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -50,7 +74,7 @@ self.addEventListener("fetch", (event) => {
         .catch(() => caches.match(event.request))
     );
   }
-  // বাকি সব (GitHub API ইত্যাদি) — সবসময় network থেকে। js/editor.js এখন
-  // local bundle (আর কোনো CDN নির্ভরতা নেই), সেটাও network-first-এর বাইরে
-  // স্বাভাবিক browser HTTP cache দিয়ে সার্ভ হয়, যেটা যথেষ্ট নিরাপদ।
+  // বাকি সব (GitHub API, Google Fonts ইত্যাদি) — সবসময় সরাসরি network থেকে,
+  // এই SW কোনো হাত দেয় না। js/editor.js (CodeMirror bundle) এখন উপরের
+  // SHELL_FILES-এর ভেতরেই আছে বলে সেটাও precache + offline fallback পায়।
 });
