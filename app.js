@@ -1,6 +1,7 @@
 // app.js — মূল অ্যাপ লজিক
 
 import * as api from "./js/api.js";
+import * as cache from "./js/cache.js";
 import { buildTree, sortedEntries, isMarkdown, isImage, isPdf } from "./js/tree.js";
 import { createEditor, setEditorContent, destroyEditor } from "./js/editor.js";
 
@@ -46,6 +47,7 @@ const settingsModalOverlay = el("settings-modal-overlay");
 const settingsVaultInfo = el("settings-vault-info");
 const settingsClose = el("settings-close");
 const settingsLogout = el("settings-logout");
+const settingsClearCache = el("settings-clear-cache");
 
 // ---------- App state ----------
 let treeData = null;
@@ -101,16 +103,35 @@ function setSyncStatus(status, text) {
 // ============================================================
 
 async function loadFileTree() {
-  setSyncStatus("syncing", "সিঙ্ক হচ্ছে…");
+  // আগে ক্যাশে থাকা তালিকা থাকলে সেটা তাৎক্ষণিকভাবে দেখাই (network-এর
+  // জন্য অপেক্ষা না করেই) — তারপর ব্যাকগ্রাউন্ডে GitHub থেকে আসল/সর্বশেষ
+  // তালিকা এনে দরকার হলে আপডেট করি। এতে অ্যাপ খোলার সাথে সাথেই sidebar
+  // দেখা যায়, নেটওয়ার্ক ধীর হলেও।
+  const cachedFlat = await cache.getTree();
+  if (cachedFlat && cachedFlat.length) {
+    treeData = buildTree(cachedFlat);
+    renderTree();
+    setSyncStatus("offline", "ক্যাশ থেকে দেখানো হচ্ছে…");
+  } else {
+    setSyncStatus("syncing", "সিঙ্ক হচ্ছে…");
+  }
+
   try {
     const flatFiles = await api.fetchTree();
     treeData = buildTree(flatFiles);
     renderTree();
     setSyncStatus("online", "সিঙ্ক হয়েছে");
+    cache.setTree(flatFiles);
   } catch (err) {
     console.error(err);
-    setSyncStatus("error", "সিঙ্ক ব্যর্থ হয়েছে");
-    fileTreeEl.innerHTML = `<div class="tree-empty">লোড করা যায়নি।<br>রিফ্রেশ চেষ্টা করুন, অথবা রিপো/PIN ঠিক আছে কিনা দেখুন।</div>`;
+    if (cachedFlat && cachedFlat.length) {
+      // ক্যাশ থেকে ইতিমধ্যে তালিকা দেখানো হয়ে গেছে — সেটাই থাকুক,
+      // শুধু status জানিয়ে দিই যে এখন সর্বশেষ ডেটা আনা যায়নি
+      setSyncStatus("error", "অফলাইন — ক্যাশ করা তালিকা দেখাচ্ছে");
+    } else {
+      setSyncStatus("error", "সিঙ্ক ব্যর্থ হয়েছে");
+      fileTreeEl.innerHTML = `<div class="tree-empty">লোড করা যায়নি।<br>রিফ্রেশ চেষ্টা করুন, অথবা রিপো/PIN ঠিক আছে কিনা দেখুন।</div>`;
+    }
   }
 }
 
@@ -258,21 +279,7 @@ async function openFile(node, preloaded = null) {
     cmHost.hidden = false;
     removeMediaPreview();
     setSaveIndicator("");
-    try {
-      const { content, sha } = preloaded || (await api.fetchFile(node.path));
-      currentFile = { path: node.path, sha, type: "md" };
-      editorView = createEditor({
-        parent: cmHost,
-        doc: content,
-        onChange: (newContent) => saveCurrentFile(newContent),
-      });
-      isDirty = false;
-      highlightActiveRow(node.path);
-    } catch (err) {
-      console.error("openFile (markdown) error:", err);
-      cmHost.innerHTML = `<div style="padding:20px;color:#e88;">এডিটর লোড করা যায়নি: ${escapeHtml(err.message || String(err))}</div>`;
-      alert("ফাইল খোলা যায়নি: " + err.message);
-    }
+    await openTextFile(node, "md", preloaded);
   } else if (isImage(node.name) || isPdf(node.name)) {
     fileTitle.hidden = true;
     cmHost.hidden = true;
@@ -290,19 +297,80 @@ async function openFile(node, preloaded = null) {
     fileTitle.textContent = fileNameWithoutExt(node.name);
     cmHost.hidden = false;
     removeMediaPreview();
-    try {
-      const { content, sha } = preloaded || (await api.fetchFile(node.path));
-      currentFile = { path: node.path, sha, type: "text" };
+    await openTextFile(node, "text", preloaded);
+  }
+}
+
+// markdown আর generic text — দুটোরই ওপেন-লজিক একই: আগে ক্যাশ থেকে থাকলে
+// তাৎক্ষণিকভাবে দেখাই (instant, Obsidian-এর মতো), তারপর ব্যাকগ্রাউন্ডে
+// GitHub থেকে সর্বশেষ ভার্সন এনে — ইউজার তখনো টাইপ করা শুরু না করে
+// থাকলে (isDirty false) — চুপচাপ আপডেট করে দিই। ইউজার টাইপ শুরু করে
+// থাকলে তার চলমান এডিট কখনো ওভাররাইট করা হয় না।
+async function openTextFile(node, type, preloaded) {
+  try {
+    let shownFromCache = false;
+
+    if (preloaded) {
+      // createFile()-এর পর সরাসরি এই ফাইলে আসা — এটা putFile()-এর
+      // রেসপন্স থেকে পাওয়া, ইতিমধ্যেই GitHub-এর সর্বশেষ ভার্সন, তাই
+      // আলাদা করে network fetch বা cache lookup-এর দরকার নেই
+      currentFile = { path: node.path, sha: preloaded.sha, type };
       editorView = createEditor({
         parent: cmHost,
-        doc: content,
-        onChange: (newContent) => saveCurrentFile(newContent),
+        doc: preloaded.content,
+        onChange: (c) => saveCurrentFile(c),
       });
       isDirty = false;
       highlightActiveRow(node.path);
-    } catch (err) {
+      cache.setFile(node.path, preloaded);
+      return;
+    }
+
+    const cached = await cache.getFile(node.path);
+    if (cached) {
+      currentFile = { path: node.path, sha: cached.sha, type };
+      editorView = createEditor({
+        parent: cmHost,
+        doc: cached.content,
+        onChange: (c) => saveCurrentFile(c),
+      });
+      isDirty = false;
+      highlightActiveRow(node.path);
+      shownFromCache = true;
+    }
+
+    const fresh = await api.fetchFile(node.path);
+    cache.setFile(node.path, fresh);
+
+    // এই fetch চলাকালীন ইউজার অন্য ফাইলে চলে গেলে এই রেসপন্স আর প্রযোজ্য না
+    if (!currentFile || currentFile.path !== node.path) return;
+
+    if (!shownFromCache) {
+      // ক্যাশে কিছুই ছিল না — এই প্রথমবার GitHub থেকেই দেখানো হচ্ছে
+      currentFile = { path: node.path, sha: fresh.sha, type };
+      editorView = createEditor({
+        parent: cmHost,
+        doc: fresh.content,
+        onChange: (c) => saveCurrentFile(c),
+      });
+      isDirty = false;
+      highlightActiveRow(node.path);
+    } else if (fresh.sha !== currentFile.sha && !isDirty) {
+      // ক্যাশ পুরনো ছিল (অন্য কোনো ডিভাইস থেকে বদলেছে), কিন্তু ইউজার
+      // এখনো এখানে টাইপ শুরু করেননি — নিরাপদে সর্বশেষ ভার্সন বসিয়ে দিই
+      currentFile.sha = fresh.sha;
+      setEditorContent(editorView, fresh.content);
+    }
+    // isDirty true হলে টাচ করা হচ্ছে না — ইউজারের চলমান এডিট কখনো হারানো হবে না
+  } catch (err) {
+    if (!currentFile || currentFile.path !== node.path || !editorView) {
+      // ক্যাশ বা নেটওয়ার্ক — কোনোটা থেকেই কিছু দেখানো গেল না
+      console.error("openTextFile error:", err);
+      cmHost.innerHTML = `<div style="padding:20px;color:#e88;">এডিটর লোড করা যায়নি: ${escapeHtml(err.message || String(err))}</div>`;
       alert("ফাইল খোলা যায়নি: " + err.message);
     }
+    // ক্যাশ থেকে ইতিমধ্যে দেখানো হয়ে থাকলে সেটাই থাকুক — শুধু
+    // ব্যাকগ্রাউন্ড sync ব্যর্থ হয়েছে, ইউজারকে বিরক্ত করার দরকার নেই
   }
 }
 
@@ -370,6 +438,7 @@ async function flushSave(content) {
     currentFile.sha = result.content.sha;
     isDirty = false;
     setSaveIndicator("saved");
+    cache.setFile(currentFile.path, { content, sha: currentFile.sha });
     setTimeout(() => setSaveIndicator(""), 2000);
   } catch (err) {
     setSaveIndicator("error", err.message);
@@ -459,6 +528,7 @@ async function deleteFileNode(node) {
       cancelPendingSave();
     }
     await api.deleteFile(node.path, node.sha, `Delete ${node.path}`);
+    cache.deleteFile(node.path);
     if (currentFile && currentFile.path === node.path) {
       closeEditor();
     }
@@ -476,6 +546,7 @@ async function deleteFolder(folderNode) {
     }
     for (const f of files) {
       await api.deleteFile(f.path, f.sha, `Delete ${f.path}`);
+      cache.deleteFile(f.path);
     }
     if (currentFile && files.some((f) => f.path === currentFile.path)) {
       closeEditor();
@@ -721,6 +792,15 @@ settingsLogout.addEventListener("click", () => {
     : "লগ আউট করবেন? আবার ঢুকতে PIN লাগবে।";
   if (!confirm(msg)) return;
   api.clearSession();
+  window.location.reload();
+});
+
+settingsClearCache.addEventListener("click", async () => {
+  // এটা শুধু লোকাল offline ক্যাশ (IndexedDB) মোছে — GitHub-এর কোনো
+  // ডেটা মোছে না। sidebar/ফাইল কোনো কারণে পুরনো/অসামঞ্জস্যপূর্ণ মনে
+  // হলে ট্রাবলশুটিং-এর জন্য এটা ব্যবহার করা যায়।
+  if (!confirm("লোকাল ক্যাশ পরিষ্কার করবেন? এতে আপনার কোনো নোট মুছে যাবে না, শুধু দ্রুত-লোডিং কপি রিসেট হবে।")) return;
+  await cache.clearAll();
   window.location.reload();
 });
 

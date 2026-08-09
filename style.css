@@ -227,6 +227,7 @@ input {
 .sync-dot.online { background: var(--success); }
 .sync-dot.syncing { background: var(--accent); animation: pulse 1s infinite; }
 .sync-dot.error { background: var(--danger); }
+.sync-dot.offline { background: #c9a227; }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
@@ -574,6 +575,17 @@ input {
   margin: 8px 0 0;
   min-height: 14px;
 }
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.link-btn:hover { color: var(--text-primary); }
 
 .modal-actions {
   display: flex;
