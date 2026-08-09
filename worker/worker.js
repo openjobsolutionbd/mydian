@@ -104,7 +104,7 @@ export default {
     if (url.pathname === "/api/login" && request.method === "POST") {
       const body = await request.json().catch(() => ({}));
       if (body.pin !== env.APP_PIN) {
-        return json({ error: "ভুল PIN" }, 401, cors);
+        return json({ error: "Incorrect PIN" }, 401, cors);
       }
       const token = await createSessionToken(env.SESSION_SECRET);
       return json({ token }, 200, cors);
@@ -115,7 +115,7 @@ export default {
     const sessionToken = authHeader.replace("Bearer ", "");
     const valid = await verifySessionToken(env.SESSION_SECRET, sessionToken);
     if (!valid) {
-      return json({ error: "Unauthorized — আবার login করুন" }, 401, cors);
+      return json({ error: "Unauthorized — please log in again" }, 401, cors);
     }
 
     // ---------- GitHub API প্রক্সি ----------
@@ -132,7 +132,7 @@ export default {
       // ALLOWED_REPOS-এ থাকা owner/repo-র জন্যই request পাস করা হবে।
       const repoMatch = githubPath.match(/^\/repos\/([^/]+)\/([^/]+)\//);
       if (!repoMatch || !isAllowedRepo(repoMatch[1], repoMatch[2], env)) {
-        return json({ error: "এই repo-তে প্রক্সি করার অনুমতি নেই" }, 403, cors);
+        return json({ error: "Proxying to this repo is not allowed" }, 403, cors);
       }
 
       const githubUrl = `${GITHUB_API}${githubPath}${url.search}`;

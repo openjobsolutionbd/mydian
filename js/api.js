@@ -42,7 +42,7 @@ async function request(path, options = {}) {
   if (res.status === 401) {
     clearSession();
     window.location.reload();
-    throw new Error("Session শেষ হয়ে গেছে — আবার লগইন করুন");
+    throw new Error("Your session has expired — please log in again");
   }
 
   return res;
@@ -56,7 +56,7 @@ export async function login(pin) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "লগইন ব্যর্থ হয়েছে");
+    throw new Error(err.error || "Login failed");
   }
   const data = await res.json();
   setSession(data.token);
@@ -68,7 +68,7 @@ export async function login(pin) {
 function repoBase() {
   const cfg = getConfig();
   if (!cfg || !cfg.owner || !cfg.repo) {
-    throw new Error("GitHub repo সেট করা হয়নি");
+    throw new Error("No GitHub repo has been configured");
   }
   return `/api/github/repos/${cfg.owner}/${cfg.repo}`;
 }
@@ -89,11 +89,11 @@ export async function fetchTree() {
     // আগে 409-কেও empty ধরা হতো, যেটা genuine error-কে "কোনো ফাইল নেই"
     // হিসেবে দেখাতে পারত। এটা বিপজ্জনক: ইউজার ভাবতে পারতেন তার সব নোট
     // হারিয়ে গেছে, যেখানে আসলে শুধু একটা network/API সমস্যা হয়েছিল।
-    throw new Error(`ফাইল তালিকা আনা যায়নি (HTTP ${res.status})`);
+    throw new Error(`Could not fetch the file list (HTTP ${res.status})`);
   }
   const data = await res.json();
   if (data.truncated) {
-    console.warn("GitHub tree response truncated — সব ফাইল sidebar-এ নাও দেখাতে পারে (repo-তে ফাইল সংখ্যা অনেক বেশি)।");
+    console.warn("GitHub tree response truncated — not all files may show in the sidebar (repo has too many files).");
   }
   return (data.tree || []).filter((item) => item.type === "blob");
 }
@@ -101,7 +101,7 @@ export async function fetchTree() {
 // একটা ফাইলের content আনে (text)
 export async function fetchFile(path) {
   const res = await request(`${repoBase()}/contents/${encodeURIPath(path)}`);
-  if (!res.ok) throw new Error("ফাইল পড়া যায়নি");
+  if (!res.ok) throw new Error("Could not read file");
   const data = await res.json();
   const content = decodeBase64Utf8(data.content);
   return { content, sha: data.sha };
@@ -110,7 +110,7 @@ export async function fetchFile(path) {
 // একটা ফাইলের raw binary/base64 content আনে (ছবি/PDF দেখানোর জন্য)
 export async function fetchFileRaw(path) {
   const res = await request(`${repoBase()}/contents/${encodeURIPath(path)}`);
-  if (!res.ok) throw new Error("ফাইল পড়া যায়নি");
+  if (!res.ok) throw new Error("Could not read file");
   const data = await res.json();
   return { base64: data.content.replace(/\n/g, ""), sha: data.sha };
 }
@@ -131,12 +131,12 @@ export async function putFile(path, contentBase64, message, sha = null) {
       // মধ্যে বদলে গেছে। raw GitHub error মেসেজ (ইংরেজি, cryptic) না
       // দেখিয়ে স্পষ্ট নির্দেশনা দেওয়া হচ্ছে।
       throw new Error(
-        "এই ফাইলটা অন্য কোথাও থেকে ইতিমধ্যে বদলে গেছে। রিফ্রেশ করে আবার " +
-        "চেষ্টা করুন — নাহলে আপনার এই পরিবর্তনটা সেভ হবে না।"
+        "This file has already been changed elsewhere. Please refresh and " +
+        "try again — otherwise this change of yours will not be saved."
       );
     }
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || "সেভ করা যায়নি");
+    throw new Error(err.message || "Could not save");
   }
   return res.json();
 }
@@ -147,7 +147,7 @@ export async function deleteFile(path, sha, message) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, sha }),
   });
-  if (!res.ok) throw new Error("ডিলিট করা যায়নি");
+  if (!res.ok) throw new Error("Could not delete");
   return res.json();
 }
 

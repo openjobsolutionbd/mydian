@@ -23,7 +23,7 @@ function openDb() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     if (!("indexedDB" in window)) {
-      reject(new Error("IndexedDB সাপোর্ট নেই"));
+      reject(new Error("IndexedDB is not supported"));
       return;
     }
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -37,7 +37,7 @@ function openDb() {
       }
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error("IndexedDB খোলা যায়নি"));
+    req.onerror = () => reject(req.error || new Error("Could not open IndexedDB"));
   });
   return dbPromise;
 }

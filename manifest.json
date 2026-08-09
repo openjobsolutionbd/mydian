@@ -1,7 +1,7 @@
 {
-  "name": "Mydian — আমার নোট",
+  "name": "Mydian — My Notes",
   "short_name": "Mydian",
-  "description": "ব্যক্তিগত মার্কডাউন নোট অ্যাপ, GitHub-এ সিঙ্ক হয়",
+  "description": "Personal markdown notes app, synced to GitHub",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1a1a1d",

@@ -111,16 +111,16 @@ async function loadFileTree() {
   if (cachedFlat && cachedFlat.length) {
     treeData = buildTree(cachedFlat);
     renderTree();
-    setSyncStatus("offline", "ক্যাশ থেকে দেখানো হচ্ছে…");
+    setSyncStatus("offline", "Showing cached copy…");
   } else {
-    setSyncStatus("syncing", "সিঙ্ক হচ্ছে…");
+    setSyncStatus("syncing", "Syncing…");
   }
 
   try {
     const flatFiles = await api.fetchTree();
     treeData = buildTree(flatFiles);
     renderTree();
-    setSyncStatus("online", "সিঙ্ক হয়েছে");
+    setSyncStatus("online", "Synced");
     cache.setTree(flatFiles);
     // অটো ক্যাশ ম্যানেজমেন্ট: এখন যেসব ফাইল আসলেই GitHub-এ আছে তার
     // তালিকার সাথে না মেলা পুরনো ক্যাশ এন্ট্রি (ডিলিট/রিনেম হয়ে যাওয়া
@@ -131,10 +131,10 @@ async function loadFileTree() {
     if (cachedFlat && cachedFlat.length) {
       // ক্যাশ থেকে ইতিমধ্যে তালিকা দেখানো হয়ে গেছে — সেটাই থাকুক,
       // শুধু status জানিয়ে দিই যে এখন সর্বশেষ ডেটা আনা যায়নি
-      setSyncStatus("error", "অফলাইন — ক্যাশ করা তালিকা দেখাচ্ছে");
+      setSyncStatus("error", "Offline — showing cached list");
     } else {
-      setSyncStatus("error", "সিঙ্ক ব্যর্থ হয়েছে");
-      fileTreeEl.innerHTML = `<div class="tree-empty">লোড করা যায়নি।<br>রিফ্রেশ চেষ্টা করুন, অথবা রিপো/PIN ঠিক আছে কিনা দেখুন।</div>`;
+      setSyncStatus("error", "Sync failed");
+      fileTreeEl.innerHTML = `<div class="tree-empty">Could not load.<br>Try refreshing, or check that the repo/PIN are correct.</div>`;
     }
   }
 }
@@ -144,7 +144,7 @@ function renderTree() {
   const entries = sortedEntries(treeData);
 
   if (entries.length === 0) {
-    fileTreeEl.innerHTML = `<div class="tree-empty">এখনো কোনো ফাইল নেই।<br>উপরের + বাটনে নতুন ফাইল তৈরি করুন।</div>`;
+    fileTreeEl.innerHTML = `<div class="tree-empty">No files yet.<br>Use the + button above to create a new file.</div>`;
     return;
   }
 
@@ -181,8 +181,8 @@ function renderNode(node) {
       <span class="node-icon">${folderSvg()}</span>
       <span class="node-label">${escapeHtml(node.name)}</span>
       <span class="tree-row-actions">
-        <button data-action="new-file" title="নতুন ফাইল">${plusSvg()}</button>
-        <button data-action="delete" title="ডিলিট">${trashSvg()}</button>
+        <button data-action="new-file" title="New file">${plusSvg()}</button>
+        <button data-action="delete" title="Delete">${trashSvg()}</button>
       </span>
     `;
 
@@ -203,14 +203,14 @@ function renderNode(node) {
     row.querySelector('[data-action="new-file"]')?.addEventListener("click", (e) => {
       e.stopPropagation();
       openModal({
-        title: "নতুন ফাইল",
-        placeholder: "নাম.md",
+        title: "New File",
+        placeholder: "name.md",
         onConfirm: (name) => createFile(`${node.path}/${sanitizeFilename(ensureMdExtension(name))}`),
       });
     });
     row.querySelector('[data-action="delete"]')?.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (confirm(`"${node.name}" ফোল্ডারের সব ফাইল ডিলিট হবে। নিশ্চিত?`)) {
+      if (confirm(`This will delete all files in "${node.name}". Are you sure?`)) {
         deleteFolder(node);
       }
     });
@@ -220,8 +220,8 @@ function renderNode(node) {
       <span class="node-icon">${fileIconSvg(node.name)}</span>
       <span class="node-label">${escapeHtml(node.name)}</span>
       <span class="tree-row-actions">
-        <button data-action="rename" title="নাম পরিবর্তন">${editSvg()}</button>
-        <button data-action="delete" title="ডিলিট">${trashSvg()}</button>
+        <button data-action="rename" title="Rename">${editSvg()}</button>
+        <button data-action="delete" title="Delete">${trashSvg()}</button>
       </span>
     `;
 
@@ -238,15 +238,15 @@ function renderNode(node) {
     row.querySelector('[data-action="rename"]')?.addEventListener("click", (e) => {
       e.stopPropagation();
       openModal({
-        title: "নাম পরিবর্তন করুন",
-        placeholder: "নতুন নাম",
+        title: "Rename",
+        placeholder: "New name",
         initialValue: node.name,
         onConfirm: (newName) => renameFile(node, ensureMdExtension(sanitizeFilename(newName))),
       });
     });
     row.querySelector('[data-action="delete"]')?.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (confirm(`"${node.name}" ডিলিট করবেন?`)) {
+      if (confirm(`Delete "${node.name}"?`)) {
         deleteFileNode(node);
       }
     });
@@ -273,7 +273,7 @@ function toggleFolder(path) {
 
 async function openFile(node, preloaded = null) {
   if (isDirty) {
-    const proceed = confirm("সেভ না করা পরিবর্তন আছে। এগোলে হারিয়ে যাবে। এগোবেন?");
+    const proceed = confirm("You have unsaved changes. They will be lost if you continue. Continue anyway?");
     if (!proceed) return;
   }
   cancelPendingSave();
@@ -304,7 +304,7 @@ async function openFile(node, preloaded = null) {
       showMediaPreview(node.name, base64);
       highlightActiveRow(node.path);
     } catch (err) {
-      alert("ফাইল খোলা যায়নি: " + err.message);
+      alert("Could not open file: " + err.message);
     }
   } else {
     fileTitle.hidden = false;
@@ -380,8 +380,8 @@ async function openTextFile(node, type, preloaded) {
     if (!currentFile || currentFile.path !== node.path || !editorView) {
       // ক্যাশ বা নেটওয়ার্ক — কোনোটা থেকেই কিছু দেখানো গেল না
       console.error("openTextFile error:", err);
-      cmHost.innerHTML = `<div style="padding:20px;color:#e88;">এডিটর লোড করা যায়নি: ${escapeHtml(err.message || String(err))}</div>`;
-      alert("ফাইল খোলা যায়নি: " + err.message);
+      cmHost.innerHTML = `<div style="padding:20px;color:#e88;">Could not load editor: ${escapeHtml(err.message || String(err))}</div>`;
+      alert("Could not open file: " + err.message);
     }
     // ক্যাশ থেকে ইতিমধ্যে দেখানো হয়ে থাকলে সেটাই থাকুক — শুধু
     // ব্যাকগ্রাউন্ড sync ব্যর্থ হয়েছে, ইউজারকে বিরক্ত করার দরকার নেই
@@ -481,7 +481,7 @@ async function flushSave(targetFile, content) {
     // প্রতিটা keystroke একটা নিশ্চিত-ব্যর্থ retry ট্রিগার করত (infinite
     // retry loop)। ইউজারকে স্পষ্টভাবে জানানো হচ্ছে যাতে ম্যানুয়ালি
     // রিফ্রেশ করে আবার লিখতে পারেন।
-    if (err.message && err.message.includes("অন্য কোথাও থেকে ইতিমধ্যে বদলে গেছে")) {
+    if (err.message && err.message.includes("has already been changed elsewhere")) {
       pendingSaveContent = null;
       pendingSaveTarget = null;
       if (currentFile === targetFile) alert(err.message);
@@ -512,7 +512,7 @@ function cancelPendingSave() {
 
 function setSaveIndicator(state, detail = "") {
   saveIndicator.className = "save-indicator " + state;
-  const map = { saving: "সেভ হচ্ছে…", saved: "সেভ হয়েছে ✓", error: "সেভ ব্যর্থ", "": "" };
+  const map = { saving: "Saving…", saved: "Saved ✓", error: "Save failed", "": "" };
   saveIndicator.textContent = map[state] ?? "";
   saveIndicator.title = detail || "";
 }
@@ -539,7 +539,7 @@ async function createFile(path, initialContent = "", openAfterCreate = true) {
     // জায়গা থাকত না)।
     openFile({ path, name }, { content: initialContent, sha: result.content.sha });
   } catch (err) {
-    alert("ফাইল তৈরি করা যায়নি: " + err.message);
+    alert("Could not create file: " + err.message);
   }
 }
 
@@ -572,7 +572,7 @@ async function deleteFileNode(node) {
     }
     await loadFileTree();
   } catch (err) {
-    alert("ডিলিট করা যায়নি: " + err.message);
+    alert("Could not delete: " + err.message);
   }
 }
 
@@ -587,7 +587,7 @@ async function renameFile(node, newName) {
   const newPath = parentPath ? `${parentPath}/${newName}` : newName;
 
   if (findNodeByPath(newPath)) {
-    alert("এই নামে ইতিমধ্যে একটা ফাইল আছে।");
+    alert("A file with this name already exists.");
     return;
   }
 
@@ -599,7 +599,7 @@ async function renameFile(node, newName) {
     ({ base64 } = await api.fetchFileRaw(node.path));
     putResult = await api.putFile(newPath, base64, `Rename ${node.path} → ${newPath}`);
   } catch (err) {
-    alert("নাম পরিবর্তন করা যায়নি: " + err.message);
+    alert("Could not rename: " + err.message);
     return;
   }
 
@@ -613,12 +613,12 @@ async function renameFile(node, newName) {
   } catch (deleteErr) {
     try {
       await api.deleteFile(newPath, putResult.content.sha, `Rollback failed rename: remove ${newPath}`);
-      alert("নাম পরিবর্তন করা যায়নি (পুরনো ফাইল মোছা ব্যর্থ হয়েছে) — কোনো পরিবর্তন হয়নি, আগের অবস্থাতেই আছে।");
+      alert("Could not complete rename (failed to delete the old file) — no changes were made, everything is as it was.");
     } catch (rollbackErr) {
       // রোলব্যাকও ব্যর্থ — এখন সত্যিই দুইটা কপি থেকে গেছে, ইউজারকে স্পষ্টভাবে জানানো জরুরি
       alert(
-        `নাম পরিবর্তন অসম্পূর্ণ থেকে গেছে — এখন "${node.path}" আর "${newPath}" ` +
-        `দুটোই আপনার ভল্টে আছে। একটা ম্যানুয়ালি মুছে দিন।`
+        `Rename did not complete — both "${node.path}" and "${newPath}" ` +
+        `now exist in your vault. Please delete one manually.`
       );
     }
     await loadFileTree();
@@ -662,7 +662,7 @@ async function deleteFolder(folderNode) {
     // ফোল্ডারের কিছু ফাইল ততক্ষণে সত্যিই মুছে গিয়ে থাকতে পারে, বাকিগুলো
     // না — সেই আংশিক অবস্থা যেন sidebar-এ সঠিকভাবে প্রতিফলিত হয়, তাই এই
     // catch-এর পরও (নিচে finally-তে) সবসময় তালিকা রিফ্রেশ করা হচ্ছে
-    alert("ফোল্ডার ডিলিট সম্পূর্ণ হয়নি (কিছু ফাইল মুছে যেতে পারে) — তালিকা রিফ্রেশ করা হচ্ছে: " + err.message);
+    alert("Folder delete did not fully complete (some files may remain) — refreshing the list: " + err.message);
   } finally {
     await loadFileTree();
     // ওপেন থাকা ফাইলটা যদি (সম্পূর্ণ বা আংশিক ডিলিটে) সত্যিই আর না থাকে,
@@ -692,7 +692,7 @@ function closeEditor() {
   removeMediaPreview();
   editorWrap.hidden = true;
   emptyState.hidden = false;
-  breadcrumb.textContent = "একটি ফাইল বেছে নিন";
+  breadcrumb.textContent = "Select a file";
   btnDownload.hidden = true;
   btnDelete.hidden = true;
   setSaveIndicator("");
@@ -706,23 +706,23 @@ btnRefresh.addEventListener("click", loadFileTree);
 
 btnNewFile.addEventListener("click", () => {
   openModal({
-    title: "নতুন ফাইল (root-এ)",
-    placeholder: "নাম.md",
+    title: "New File (in root)",
+    placeholder: "name.md",
     onConfirm: (name) => createFile(sanitizeFilename(ensureMdExtension(name))),
   });
 });
 
 btnNewFolder.addEventListener("click", () => {
   openModal({
-    title: "নতুন ফোল্ডার (root-এ)",
-    placeholder: "ফোল্ডারের নাম",
+    title: "New Folder (in root)",
+    placeholder: "Folder name",
     onConfirm: (name) => createFolder(sanitizeFilename(name)),
   });
 });
 
 btnDelete.addEventListener("click", () => {
   if (!currentFile) return;
-  if (confirm(`"${currentFile.path}" ডিলিট করবেন?`)) {
+  if (confirm(`Delete "${currentFile.path}"?`)) {
     deleteFileNode({ path: currentFile.path, sha: currentFile.sha });
   }
 });
@@ -739,7 +739,7 @@ btnDownload.addEventListener("click", async () => {
       downloadText(content, currentFile.path.split("/").pop());
     }
   } catch (err) {
-    alert("ডাউনলোড ব্যর্থ: " + err.message);
+    alert("Download failed: " + err.message);
   }
 });
 
@@ -792,7 +792,7 @@ function uploadAttachment(file) {
         await api.putFile(path, base64, `Add attachment ${safeName}`);
         resolve();
       } catch (err) {
-        alert("আপলোড ব্যর্থ: " + err.message);
+        alert("Upload failed: " + err.message);
         reject(err);
       }
     };
@@ -920,8 +920,8 @@ settingsLogout.addEventListener("click", () => {
   // in-flight/queued থাকলে) সম্পূর্ণ না হতেই reload হয়ে সেই পরিবর্তন
   // চিরতরে হারিয়ে যেত — কোনো সতর্কতা ছাড়াই।
   const msg = isDirty
-    ? "সেভ না করা পরিবর্তন আছে — লগ আউট করলে সেটা হারিয়ে যাবে। তারপরও লগ আউট করবেন?"
-    : "লগ আউট করবেন? আবার ঢুকতে PIN লাগবে।";
+    ? "You have unsaved changes — logging out will lose them. Log out anyway?"
+    : "Log out? You'll need your PIN to log back in.";
   if (!confirm(msg)) return;
   api.clearSession();
   window.location.reload();
@@ -931,7 +931,7 @@ settingsClearCache.addEventListener("click", async () => {
   // এটা শুধু লোকাল offline ক্যাশ (IndexedDB) মোছে — GitHub-এর কোনো
   // ডেটা মোছে না। sidebar/ফাইল কোনো কারণে পুরনো/অসামঞ্জস্যপূর্ণ মনে
   // হলে ট্রাবলশুটিং-এর জন্য এটা ব্যবহার করা যায়।
-  if (!confirm("লোকাল ক্যাশ পরিষ্কার করবেন? এতে আপনার কোনো নোট মুছে যাবে না, শুধু দ্রুত-লোডিং কপি রিসেট হবে।")) return;
+  if (!confirm("Clear the local cache? This won't delete any of your notes, it only resets the fast-loading copy.")) return;
   await cache.clearAll();
   window.location.reload();
 });
@@ -1012,8 +1012,8 @@ if ("serviceWorker" in navigator) {
     }
     if (isDirty) {
       const proceed = confirm(
-        "নতুন আপডেট এসেছে, কিন্তু আপনার কিছু পরিবর্তন এখনো সেভ হয়নি। " +
-        "এখনই আপডেট করলে সেগুলো হারিয়ে যেতে পারে। এখনই আপডেট করবেন?"
+        "An update is available, but you have unsaved changes. " +
+        "Updating now could lose them. Update now anyway?"
       );
       if (!proceed) {
         refreshing = false; // পরে আবার visibilitychange/interval-এ update() ট্রাই হবে
