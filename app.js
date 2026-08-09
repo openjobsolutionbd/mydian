@@ -201,7 +201,7 @@ function renderNode(node) {
       openModal({
         title: "নতুন ফাইল",
         placeholder: "নাম.md",
-        onConfirm: (name) => createFile(`${node.path}/${sanitizeFilename(name)}`),
+        onConfirm: (name) => createFile(`${node.path}/${sanitizeFilename(ensureMdExtension(name))}`),
       });
     });
     row.querySelector('[data-action="delete"]')?.addEventListener("click", (e) => {
@@ -216,6 +216,7 @@ function renderNode(node) {
       <span class="node-icon">${fileIconSvg(node.name)}</span>
       <span class="node-label">${escapeHtml(node.name)}</span>
       <span class="tree-row-actions">
+        <button data-action="rename" title="নাম পরিবর্তন">${editSvg()}</button>
         <button data-action="delete" title="ডিলিট">${trashSvg()}</button>
       </span>
     `;
@@ -230,6 +231,15 @@ function renderNode(node) {
       closeMobileSidebar();
     });
 
+    row.querySelector('[data-action="rename"]')?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openModal({
+        title: "নাম পরিবর্তন করুন",
+        placeholder: "নতুন নাম",
+        initialValue: node.name,
+        onConfirm: (newName) => renameFile(node, ensureMdExtension(sanitizeFilename(newName))),
+      });
+    });
     row.querySelector('[data-action="delete"]')?.addEventListener("click", (e) => {
       e.stopPropagation();
       if (confirm(`"${node.name}" ডিলিট করবেন?`)) {
@@ -538,6 +548,38 @@ async function deleteFileNode(node) {
   }
 }
 
+// ফাইলের নাম পরিবর্তন — GitHub Contents API-তে সরাসরি "rename" বলে কিছু
+// নেই, তাই এটা করা হয় দুই ধাপে: নতুন নামে হুবহু একই content দিয়ে ফাইল
+// তৈরি (raw base64 কপি — টেক্সট/বাইনারি দুটোর জন্যই নিরাপদ), তারপর
+// পুরনো নামের ফাইলটা ডিলিট।
+async function renameFile(node, newName) {
+  if (!newName || newName === node.name) return;
+
+  const parentPath = node.path.split("/").slice(0, -1).join("/");
+  const newPath = parentPath ? `${parentPath}/${newName}` : newName;
+
+  if (findNodeByPath(newPath)) {
+    alert("এই নামে ইতিমধ্যে একটা ফাইল আছে।");
+    return;
+  }
+
+  const wasOpen = currentFile && currentFile.path === node.path;
+  if (wasOpen) cancelPendingSave();
+
+  try {
+    const { base64 } = await api.fetchFileRaw(node.path);
+    await api.putFile(newPath, base64, `Rename ${node.path} → ${newPath}`);
+    await api.deleteFile(node.path, node.sha, `Rename: remove old path ${node.path}`);
+    await loadFileTree();
+    if (wasOpen) {
+      const newNode = findNodeByPath(newPath);
+      if (newNode) openFile(newNode);
+    }
+  } catch (err) {
+    alert("নাম পরিবর্তন করা যায়নি: " + err.message);
+  }
+}
+
 async function deleteFolder(folderNode) {
   const files = collectAllFiles(folderNode);
   try {
@@ -591,7 +633,7 @@ btnNewFile.addEventListener("click", () => {
   openModal({
     title: "নতুন ফাইল (root-এ)",
     placeholder: "নাম.md",
-    onConfirm: (name) => createFile(sanitizeFilename(name)),
+    onConfirm: (name) => createFile(sanitizeFilename(ensureMdExtension(name))),
   });
 });
 
@@ -691,6 +733,17 @@ function sanitizeFilename(name) {
   return cleaned || "file";
 }
 
+// নতুন নোট ফাইল বানানোর সময় ইউজার এক্সটেনশন লিখতে ভুলে গেলে (যেমন শুধু
+// "আমার-নোট" লিখলেন, ".md" বাদ পড়ে গেল) — তাতে ফাইলটা extension ছাড়া
+// তৈরি হয়ে যেত, এবং ডাউনলোড করলে ব্রাউজার সেটাকে .txt ধরে নিত। এখন যদি
+// নামে কোনো এক্সটেনশনই (কোনো ডট-এর পরে অক্ষর) না থাকে, স্বয়ংক্রিয়ভাবে
+// ".md" জুড়ে দেওয়া হয়। ইউজার ইচ্ছাকৃতভাবে অন্য এক্সটেনশন (.txt, .json
+// ইত্যাদি) দিলে সেটা অক্ষত থাকে — শুধু একদম কোনো এক্সটেনশন না থাকলেই এটা কাজ করে।
+function ensureMdExtension(name) {
+  const hasExtension = /\.[a-zA-Z0-9]+$/.test(name);
+  return hasExtension ? name : `${name}.md`;
+}
+
 // ============================================================
 // Mobile sidebar
 // ============================================================
@@ -711,17 +764,21 @@ function closeMobileSidebar() {
 // Modal (নতুন ফাইল/ফোল্ডার)
 // ============================================================
 
-function openModal({ title, placeholder, hint, onConfirm }) {
+function openModal({ title, placeholder, hint, initialValue = "", onConfirm }) {
   // দুটো আলাদা মোডাল (নতুন ফাইল/ফোল্ডার আর সেটিংস) একই সময়ে খোলা থাকলে
   // ওভারল্যাপ করে stack হয়ে যেত — একটা খোলার সময় অন্যটা বন্ধ করে দেওয়া হচ্ছে
   settingsModalOverlay.hidden = true;
   modalTitle.textContent = title;
   modalInput.placeholder = placeholder || "";
   modalHint.textContent = hint || "";
-  modalInput.value = "";
+  modalInput.value = initialValue;
   pendingModalAction = onConfirm;
   modalOverlay.hidden = false;
-  setTimeout(() => modalInput.focus(), 50);
+  setTimeout(() => {
+    modalInput.focus();
+    // rename-এর সময় নাম সিলেক্ট করে রাখি, যাতে ইউজার সরাসরি টাইপ করে পুরোটা বদলাতে পারেন
+    if (initialValue) modalInput.select();
+  }, 50);
 }
 
 function closeModal() {
@@ -847,6 +904,9 @@ function plusSvg() {
 }
 function trashSvg() {
   return `<svg viewBox="0 0 24 24" width="13" height="13"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
+}
+function editSvg() {
+  return `<svg viewBox="0 0 24 24" width="13" height="13"><path d="M12 20h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
 // ============================================================
