@@ -10,6 +10,31 @@
 
 ## ০. সর্বশেষ অবস্থা (এই সেকশনটা প্রতিটা কাজের পর আপডেট হবে)
 
+> ✅ **আপডেট (২০২৬-০৮-০৯, একই দিনের পরের সেশন):** পারফরম্যান্স/কাঠামো
+> রিভিউ করে দুটো উন্নতি করা হয়েছে — `js/editor.js` minify (৯০৫KB →
+> ৫২৮KB, gzip-এ ২৪০KB → ১৭১KB) আর `BUILD_ID` স্বয়ংক্রিয় করা
+> (`scripts/bump-build-id.sh`)। বিস্তারিত নিচে।
+
+**সর্বশেষ commit:** editor.js minify + BUILD_ID automation স্ক্রিপ্ট
+**তারিখ:** ২০২৬-০৮-০৯ (তৃতীয় সেশন, একই দিনে)
+
+**এই রাউন্ডে যা পরিবর্তন হয়েছে:**
+1. **`js/editor.js` minify করা হয়েছে (terser দিয়ে):** সোর্স ফাইলটা
+   ছিল bundle করা কিন্তু unminified (৯০৫KB, ~24k লাইন, readable ভ্যারিয়েবল
+   নাম সহ)। এখন `terser -c -m` দিয়ে minify করে বসানো হয়েছে — সাইজ ৯০৫KB
+   → ৫২৮KB (raw), আর gzip-এ (যেটা আসলে ব্রাউজার ডাউনলোড করে) ২৪০KB →
+   ১৭১KB (~২৯% কম)। Export names (`createEditor`, `setEditorContent`,
+   `destroyEditor`) অপরিবর্তিত আছে, `app.js`-এর import ঠিকঠাক কাজ করে।
+   **গুরুত্বপূর্ণ:** এখন থেকে `js/editor.js`-এ manually কোনো এডিট করা
+   উচিত না (পড়া প্রায় অসম্ভব) — bundle regenerate করতে হলে সেকশন ৩.৫-এর
+   প্রক্রিয়া অনুসরণ করে esbuild দিয়ে বান্ডল করে, তারপর নতুন করে terser
+   দিয়ে minify করে replace করতে হবে।
+2. **`scripts/bump-build-id.sh` যোগ করা হয়েছে:** এই স্ক্রিপ্ট চালালে
+   `sw.js`-এর `BUILD_ID` বর্তমান তারিখ+সময় (মিনিট পর্যন্ত) দিয়ে
+   স্বয়ংক্রিয়ভাবে আপডেট হয়। **নিয়ম:** প্রতিবার নতুন push করার আগে Claude
+   এই স্ক্রিপ্টটা রুটিন হিসেবে চালাবে, যাতে হাতে ভুলে যাওয়ার ঝুঁকি না
+   থাকে।
+
 > ✅ **আপডেট (২০২৬-০৮-১০, নতুন সেশন):** ইউজার স্পষ্ট করে বলেছেন এই
 > অ্যাপে **কোনো বাংলা ফন্টের দরকার নেই** — সব জায়গায় শুধু ইংরেজি ফন্ট
 > (Inter) চান। এই ইনস্ট্রাকশনটা মনে রাখা জরুরি: ভবিষ্যতে নতুন কোনো UI
@@ -370,7 +395,7 @@ cp editor.bundle.js ../mydian/js/editor.js
 | `js/api.js` | Worker-এর মাধ্যমে GitHub REST API কল, session/config localStorage-এ রাখা |
 | `js/tree.js` | GitHub-এর flat file list-কে nested tree বানানো, sort করা, file-type হেল্পার (isMarkdown ইত্যাদি) |
 | `js/cache.js` | IndexedDB-ভিত্তিক অফলাইন-ফার্স্ট লোকাল ক্যাশ (ফাইল-তালিকা + কনটেন্ট), best-effort — ব্যর্থ হলে চুপচাপ network-only মোডে চলে যায় |
-| `js/editor.js` | **Bundled** CodeMirror 6 (esbuild দিয়ে বান্ডলড, ~24k লাইন) — লাইভ-প্রিভিউ markdown এডিটর |
+| `js/editor.js` | **Bundled + minified** CodeMirror 6 (esbuild দিয়ে বান্ডলড, তারপর terser দিয়ে minify করা — সোর্স ~24k লাইন ছিল, এখন এক-লাইন compact ফাইল) — লাইভ-প্রিভিউ markdown এডিটর |
 | `sw.js` | Service worker — app shell cache + auto-update মেকানিজম |
 | `manifest.json` | PWA manifest |
 | `_headers` | Cloudflare Pages HTTP header rules (no-cache for shell files) |
@@ -384,11 +409,11 @@ cp editor.bundle.js ../mydian/js/editor.js
 
 ## ৫. জানা সীমাবদ্ধতা / ভবিষ্যতে যা খেয়াল রাখা উচিত
 
-- **`BUILD_ID` ম্যানুয়াল:** `sw.js`-এর `BUILD_ID` স্ট্রিং প্রতি deploy-এ
-  হাতে বদলাতে হয় cache invalidate করার জন্য। এটা git commit hash বা
-  timestamp দিয়ে automate করা যেতে পারে (যেমন CI/CD পাইপলাইনে বিল্ড টাইমে
-  inject করে), কিন্তু এখন এই প্রজেক্টে কোনো build step নেই বলে ম্যানুয়াল
-  রাখা হয়েছে।
+- **`BUILD_ID` এখন স্বয়ংক্রিয় (২০২৬-০৮-০৯ থেকে):** আগে হাতে বদলাতে হতো,
+  এখন `scripts/bump-build-id.sh` চালালেই বর্তমান তারিখ+সময় দিয়ে
+  `sw.js`-এর `BUILD_ID` আপডেট হয়ে যায়। **নিয়ম: প্রতিবার push করার আগে এই
+  স্ক্রিপ্টটা চালাতে হবে**, তারপর commit-এ `sw.js`-এর পরিবর্তনও যোগ করতে
+  হবে। (Claude নিজে এখন থেকে প্রতি push-এর আগে এটা রুটিন হিসেবে চালাবে।)
 - **`WORKER_URL` হার্ডকোড:** `js/api.js`-এ সরাসরি বসানো। Worker URL
   বদলালে এটা ম্যানুয়ালি আপডেট করতে হবে।
 - **`js/editor.js` bundle পুরনো হয়ে যেতে পারে:** CodeMirror-এর নতুন
