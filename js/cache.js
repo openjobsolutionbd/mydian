@@ -128,17 +128,27 @@ export async function clearAll() {
 // গেছে) তাদের পুরনো ক্যাশ এন্ট্রি নিজে থেকেই মুছে যায়। এতে ইউজারকে
 // কখনো ম্যানুয়ালি "ক্যাশ পরিষ্কার করুন" চাপতে হয় না — ক্যাশ সবসময়
 // স্বয়ংক্রিয়ভাবে বর্তমান ফাইল-তালিকার সাথে সিঙ্ক থাকে।
-export async function pruneToPaths(validPaths) {
+//
+// একটা গুরুত্বপূর্ণ ব্যতিক্রম: এইমাত্র (কয়েক সেকেন্ড আগে) তৈরি/রিনেম হওয়া
+// ফাইল সাথে সাথে মোছা হয় না। কারণ, GitHub-এর recursive tree API নতুন
+// commit হওয়ার পরপরই সবসময় আপডেটেড তালিকা নাও দিতে পারে (eventual
+// consistency lag) — সেই সাময়িক পুরনো তালিকা দিয়ে prune চালালে এইমাত্র
+// তৈরি হওয়া ফাইলের ক্যাশ এন্ট্রি ভুল করে মুছে যেত, যদিও ফাইলটা আসলে
+// GitHub-এ ঠিকই আছে।
+const PRUNE_GRACE_MS = 15000;
+
+export async function pruneToPaths(validPaths, graceMs = PRUNE_GRACE_MS) {
   try {
     const db = await openDb();
     const validSet = new Set(validPaths);
+    const now = Date.now();
     const tx = db.transaction(STORE_FILES, "readwrite");
     const store = tx.objectStore(STORE_FILES);
-    const allKeys = await reqToPromise(store.getAllKeys());
-    for (const key of allKeys) {
-      if (!validSet.has(key)) {
-        store.delete(key);
-      }
+    const allRecords = await reqToPromise(store.getAll());
+    for (const record of allRecords) {
+      if (validSet.has(record.path)) continue;
+      if (now - (record.updatedAt || 0) < graceMs) continue; // এখনো grace period-এর মধ্যে — এখনই ছোঁয়া হচ্ছে না
+      store.delete(record.path);
     }
     return true;
   } catch (err) {

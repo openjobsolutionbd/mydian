@@ -421,41 +421,59 @@ function removeMediaPreview() {
 let saveTimer = null;
 let isSaving = false;
 let pendingSaveContent = null;
+let pendingSaveTarget = null;
 
 async function saveCurrentFile(content) {
   if (!currentFile) return;
   isDirty = true;
   setSaveIndicator("saving");
 
+  // এই সেভটা ঠিক কোন ফাইলের জন্য শুরু হচ্ছে, সেটা এখনই (object reference
+  // হিসেবে) ধরে রাখা হচ্ছে। PUT request GitHub-এ পাঠানো অবস্থায় (কয়েক
+  // সেকেন্ড লাগতে পারে) ইউজার যদি অন্য ফাইলে চলে যান, ততক্ষণে global
+  // currentFile বদলে যাবে — কিন্তু এই সেভের ফলাফল যেন তখনও সঠিক (পুরনো)
+  // ফাইলেই প্রয়োগ হয়, ভুল করে নতুন খোলা ফাইলে না বসে, সেটা নিশ্চিত করতেই
+  // এই আলাদা রেফারেন্স রাখা।
+  const targetFile = currentFile;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => flushSave(content), 300);
+  saveTimer = setTimeout(() => flushSave(targetFile, content), 300);
 }
 
-async function flushSave(content) {
-  if (!currentFile) return;
+async function flushSave(targetFile, content) {
+  if (!targetFile) return;
   if (isSaving) {
     // আগের save এখনো GitHub-এর দিকে in-flight — একই সাথে দুটো PUT পাঠালে
     // পুরনো sha দিয়ে দ্বিতীয়টা 409 Conflict দিয়ে ব্যর্থ হতে পারে। তাই এখন
     // শুধু সর্বশেষ content মনে রাখা হচ্ছে, চলমান save শেষ হলে সেটাই সেভ হবে।
     pendingSaveContent = content;
+    pendingSaveTarget = targetFile;
     return;
   }
   isSaving = true;
   try {
     const base64 = api.encodeBase64Utf8(content);
     const result = await api.putFile(
-      currentFile.path,
+      targetFile.path,
       base64,
-      `Update ${currentFile.path}`,
-      currentFile.sha
+      `Update ${targetFile.path}`,
+      targetFile.sha
     );
-    currentFile.sha = result.content.sha;
-    isDirty = false;
-    setSaveIndicator("saved");
-    cache.setFile(currentFile.path, { content, sha: currentFile.sha });
-    setTimeout(() => setSaveIndicator(""), 2000);
+    targetFile.sha = result.content.sha;
+    cache.setFile(targetFile.path, { content, sha: targetFile.sha });
+    // এই সেভ যে ফাইলের জন্য শুরু হয়েছিল, ইউজার তখনো সেই ফাইলেই আছেন কিনা
+    // চেক করেই isDirty/সেভ-ইন্ডিকেটর আপডেট করা হচ্ছে — এই চেক ছাড়া, ইউজার
+    // ততক্ষণে অন্য একটা ফাইল খুলে ফেললে সেই নতুন ফাইলের স্ট্যাটাস ভুলভাবে
+    // "সেভ হয়েছে"/isDirty=false দেখাত, যেখানে আসলে এই সেভটা তার সাথে
+    // সম্পর্কিতই না।
+    if (currentFile === targetFile) {
+      isDirty = false;
+      setSaveIndicator("saved");
+      setTimeout(() => setSaveIndicator(""), 2000);
+    }
   } catch (err) {
-    setSaveIndicator("error", err.message);
+    if (currentFile === targetFile) {
+      setSaveIndicator("error", err.message);
+    }
     console.error(err);
     // sha conflict (409) হলে পুরনো sha দিয়ে আবার চেষ্টা করলে সেটাও একই
     // কারণে ব্যর্থ হবে — pending queue-তে থাকা content থাকলেও সেটা দিয়ে
@@ -465,14 +483,17 @@ async function flushSave(content) {
     // রিফ্রেশ করে আবার লিখতে পারেন।
     if (err.message && err.message.includes("অন্য কোথাও থেকে ইতিমধ্যে বদলে গেছে")) {
       pendingSaveContent = null;
-      alert(err.message);
+      pendingSaveTarget = null;
+      if (currentFile === targetFile) alert(err.message);
     }
   } finally {
     isSaving = false;
     if (pendingSaveContent !== null) {
-      const next = pendingSaveContent;
+      const nextContent = pendingSaveContent;
+      const nextTarget = pendingSaveTarget;
       pendingSaveContent = null;
-      flushSave(next);
+      pendingSaveTarget = null;
+      flushSave(nextTarget, nextContent);
     }
   }
 }
@@ -481,9 +502,12 @@ function cancelPendingSave() {
   clearTimeout(saveTimer);
   saveTimer = null;
   pendingSaveContent = null;
+  pendingSaveTarget = null;
   // isSaving ইচ্ছাকৃতভাবে touch করা হচ্ছে না — যদি একটা PUT ইতিমধ্যে GitHub-এর
   // দিকে in-flight থাকে সেটা থামানো সম্ভব না, শুধু নিশ্চিত করা হচ্ছে যে সেই
-  // request শেষ হওয়ার পর আর কোনো "পরের" save চেইন হবে না।
+  // request শেষ হওয়ার পর আর কোনো "পরের" save চেইন হবে না। (সেই in-flight
+  // save নিজেই এখন targetFile ধরে রাখে বলে ততদিনে অন্য ফাইলে চলে গেলেও
+  // ভুল ফাইলে প্রয়োগ হবে না — উপরে flushSave দ্রষ্টব্য।)
 }
 
 function setSaveIndicator(state, detail = "") {
@@ -570,53 +594,83 @@ async function renameFile(node, newName) {
   const wasOpen = currentFile && currentFile.path === node.path;
   if (wasOpen) cancelPendingSave();
 
+  let base64, putResult;
   try {
-    const { base64 } = await api.fetchFileRaw(node.path);
-    const putResult = await api.putFile(newPath, base64, `Rename ${node.path} → ${newPath}`);
-    await api.deleteFile(node.path, node.sha, `Rename: remove old path ${node.path}`);
-
-    // ক্যাশও সিঙ্ক রাখা হচ্ছে — পুরনো পাথের এন্ট্রি মুছে দেওয়া হচ্ছে (নাহলে
-    // চিরকাল অপ্রয়োজনীয়ভাবে থেকে যেত), আর টেক্সট/মার্কডাউন ফাইল হলে নতুন
-    // পাথেই আগে থেকে content বসিয়ে রাখা হচ্ছে যাতে পরেরবার instant খোলে।
-    // বাইনারি ফাইল (ছবি/PDF) ক্যাশ করা হয় না বলে সেগুলোর জন্য শুধু পুরনো
-    // এন্ট্রি মুছলেই যথেষ্ট।
-    cache.deleteFile(node.path);
-    if (!isImage(newName) && !isPdf(newName)) {
-      try {
-        const content = api.decodeBase64Utf8(base64);
-        cache.setFile(newPath, { content, sha: putResult.content.sha });
-      } catch (e) {
-        // decode ব্যর্থ হলেও rename নিজে সফল হয়েছে — cache miss হলে
-        // পরের ওপেনে স্বাভাবিকভাবেই network থেকে আনবে, কোনো ক্ষতি নেই
-      }
-    }
-
-    await loadFileTree();
-    if (wasOpen) {
-      const newNode = findNodeByPath(newPath);
-      if (newNode) openFile(newNode);
-    }
+    ({ base64 } = await api.fetchFileRaw(node.path));
+    putResult = await api.putFile(newPath, base64, `Rename ${node.path} → ${newPath}`);
   } catch (err) {
     alert("নাম পরিবর্তন করা যায়নি: " + err.message);
+    return;
+  }
+
+  // নতুন নামে কপি তৈরি সফল হয়ে গেছে — এখন পুরনোটা মোছার চেষ্টা। এটা ব্যর্থ
+  // হলে দুইটা কপি (পুরনো + নতুন নাম) থেকে যাবে, তাই সাথে সাথে নতুন কপিটা
+  // রোলব্যাক (মুছে) করার চেষ্টা করা হচ্ছে — যাতে ডুপ্লিকেট ফাইল তৈরি না হয়
+  // এবং ইউজার একটা পরিষ্কার, ভবিষ্যদ্বাণীযোগ্য ফলাফল পান: হয় সম্পূর্ণ সফল,
+  // নয়তো সম্পূর্ণ আগের অবস্থায়।
+  try {
+    await api.deleteFile(node.path, node.sha, `Rename: remove old path ${node.path}`);
+  } catch (deleteErr) {
+    try {
+      await api.deleteFile(newPath, putResult.content.sha, `Rollback failed rename: remove ${newPath}`);
+      alert("নাম পরিবর্তন করা যায়নি (পুরনো ফাইল মোছা ব্যর্থ হয়েছে) — কোনো পরিবর্তন হয়নি, আগের অবস্থাতেই আছে।");
+    } catch (rollbackErr) {
+      // রোলব্যাকও ব্যর্থ — এখন সত্যিই দুইটা কপি থেকে গেছে, ইউজারকে স্পষ্টভাবে জানানো জরুরি
+      alert(
+        `নাম পরিবর্তন অসম্পূর্ণ থেকে গেছে — এখন "${node.path}" আর "${newPath}" ` +
+        `দুটোই আপনার ভল্টে আছে। একটা ম্যানুয়ালি মুছে দিন।`
+      );
+    }
+    await loadFileTree();
+    return;
+  }
+
+  // ক্যাশও সিঙ্ক রাখা হচ্ছে — পুরনো পাথের এন্ট্রি মুছে দেওয়া হচ্ছে (নাহলে
+  // চিরকাল অপ্রয়োজনীয়ভাবে থেকে যেত), আর টেক্সট/মার্কডাউন ফাইল হলে নতুন
+  // পাথেই আগে থেকে content বসিয়ে রাখা হচ্ছে যাতে পরেরবার instant খোলে।
+  // বাইনারি ফাইল (ছবি/PDF) ক্যাশ করা হয় না বলে সেগুলোর জন্য শুধু পুরনো
+  // এন্ট্রি মুছলেই যথেষ্ট।
+  cache.deleteFile(node.path);
+  if (!isImage(newName) && !isPdf(newName)) {
+    try {
+      const content = api.decodeBase64Utf8(base64);
+      cache.setFile(newPath, { content, sha: putResult.content.sha });
+    } catch (e) {
+      // decode ব্যর্থ হলেও rename নিজে সফল হয়েছে — cache miss হলে
+      // পরের ওপেনে স্বাভাবিকভাবেই network থেকে আনবে, কোনো ক্ষতি নেই
+    }
+  }
+
+  await loadFileTree();
+  if (wasOpen) {
+    const newNode = findNodeByPath(newPath);
+    if (newNode) openFile(newNode);
   }
 }
 
 async function deleteFolder(folderNode) {
   const files = collectAllFiles(folderNode);
+  if (currentFile && files.some((f) => f.path === currentFile.path)) {
+    cancelPendingSave();
+  }
   try {
-    if (currentFile && files.some((f) => f.path === currentFile.path)) {
-      cancelPendingSave();
-    }
     for (const f of files) {
       await api.deleteFile(f.path, f.sha, `Delete ${f.path}`);
       cache.deleteFile(f.path);
     }
-    if (currentFile && files.some((f) => f.path === currentFile.path)) {
+  } catch (err) {
+    // ফোল্ডারের কিছু ফাইল ততক্ষণে সত্যিই মুছে গিয়ে থাকতে পারে, বাকিগুলো
+    // না — সেই আংশিক অবস্থা যেন sidebar-এ সঠিকভাবে প্রতিফলিত হয়, তাই এই
+    // catch-এর পরও (নিচে finally-তে) সবসময় তালিকা রিফ্রেশ করা হচ্ছে
+    alert("ফোল্ডার ডিলিট সম্পূর্ণ হয়নি (কিছু ফাইল মুছে যেতে পারে) — তালিকা রিফ্রেশ করা হচ্ছে: " + err.message);
+  } finally {
+    await loadFileTree();
+    // ওপেন থাকা ফাইলটা যদি (সম্পূর্ণ বা আংশিক ডিলিটে) সত্যিই আর না থাকে,
+    // তাহলেই এডিটর বন্ধ করা হচ্ছে — আসল অবস্থা (রিফ্রেশ করা treeData)
+    // অনুযায়ী চেক করে, শুধু ধরে না নিয়ে
+    if (currentFile && !findNodeByPath(currentFile.path)) {
       closeEditor();
     }
-    await loadFileTree();
-  } catch (err) {
-    alert("ফোল্ডার ডিলিট করা যায়নি: " + err.message);
   }
 }
 
