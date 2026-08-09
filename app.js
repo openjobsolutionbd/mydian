@@ -568,8 +568,25 @@ async function renameFile(node, newName) {
 
   try {
     const { base64 } = await api.fetchFileRaw(node.path);
-    await api.putFile(newPath, base64, `Rename ${node.path} → ${newPath}`);
+    const putResult = await api.putFile(newPath, base64, `Rename ${node.path} → ${newPath}`);
     await api.deleteFile(node.path, node.sha, `Rename: remove old path ${node.path}`);
+
+    // ক্যাশও সিঙ্ক রাখা হচ্ছে — পুরনো পাথের এন্ট্রি মুছে দেওয়া হচ্ছে (নাহলে
+    // চিরকাল অপ্রয়োজনীয়ভাবে থেকে যেত), আর টেক্সট/মার্কডাউন ফাইল হলে নতুন
+    // পাথেই আগে থেকে content বসিয়ে রাখা হচ্ছে যাতে পরেরবার instant খোলে।
+    // বাইনারি ফাইল (ছবি/PDF) ক্যাশ করা হয় না বলে সেগুলোর জন্য শুধু পুরনো
+    // এন্ট্রি মুছলেই যথেষ্ট।
+    cache.deleteFile(node.path);
+    if (!isImage(newName) && !isPdf(newName)) {
+      try {
+        const content = api.decodeBase64Utf8(base64);
+        cache.setFile(newPath, { content, sha: putResult.content.sha });
+      } catch (e) {
+        // decode ব্যর্থ হলেও rename নিজে সফল হয়েছে — cache miss হলে
+        // পরের ওপেনে স্বাভাবিকভাবেই network থেকে আনবে, কোনো ক্ষতি নেই
+      }
+    }
+
     await loadFileTree();
     if (wasOpen) {
       const newNode = findNodeByPath(newPath);
