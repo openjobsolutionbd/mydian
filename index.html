@@ -5,7 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Mydian — My Notes</title>
   <meta name="description" content="Personal markdown notes app, synced to GitHub" />
-  <meta name="theme-color" content="#151517" />
+  <meta name="theme-color" content="#151517" id="theme-color-meta" />
+  <!-- CSS লোড হওয়ার আগেই থিম সেট করা হচ্ছে যাতে ভুল থিমে একমুহূর্তের
+       জন্যও flash না দেখায় (dark ইউজার light-এ সংক্ষিপ্ত ঝলক দেখতেন,
+       নাহলে)। localStorage না থাকলে (প্রথমবার) dark-ই থাকবে, ডিফল্ট। -->
+  <script>
+    (function () {
+      var saved = localStorage.getItem("mydian-theme");
+      if (saved === "light") {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
@@ -126,6 +137,9 @@
     <div class="modal">
       <h3>Settings</h3>
       <p class="modal-hint" id="settings-vault-info"></p>
+      <p class="modal-hint">
+        <button class="link-btn" id="settings-theme-toggle">🌙 Dark mode</button>
+      </p>
       <p class="modal-hint">
         <button class="link-btn" id="settings-clear-cache">Clear Cache</button>
       </p>

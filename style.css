@@ -1,5 +1,10 @@
 /* ============ Design tokens ============ */
-:root {
+/* দুইটা থিম — dark (ডিফল্ট) আর light। সব রঙ variable আকারে রাখা আছে
+   বলে বাকি পুরো CSS ফাইলে কোনো hardcoded hex color হার্ডকোড নেই —
+   তাই <html data-theme="light"> বসালেই পুরো অ্যাপ (editor, modal,
+   sidebar, সবকিছু) স্বয়ংক্রিয়ভাবে light দেখাবে, আলাদা করে প্রতিটা
+   জায়গায় override লেখার দরকার নেই। */
+:root, [data-theme="dark"] {
   --bg-app: #1a1a1d;
   --bg-sidebar: #151517;
   --bg-elevated: #202024;
@@ -27,6 +32,31 @@
   --sidebar-w: 280px;
 }
 
+[data-theme="light"] {
+  --bg-app: #faf8f5;
+  --bg-sidebar: #f2efe9;
+  --bg-elevated: #ffffff;
+  --bg-hover: #ece7dd;
+  --bg-active: #f4e6c9;
+  --border: #e2ddd2;
+  --border-soft: #ece7de;
+
+  --text-primary: #2b2825;
+  --text-secondary: #6b6660;
+  --text-muted: #9b968d;
+
+  /* accent টেক্সট হিসেবেও ব্যবহার হয় (যেমন save-indicator), তাই
+     light background-এ পড়ার জন্য dark mode-এর accent-এর চেয়ে
+     গাঢ় রাখা হয়েছে — নাহলে সাদা background-এ হালকা সোনালি রঙ পড়াই
+     যেত না। */
+  --accent: #b8763f;
+  --accent-soft: rgba(184, 118, 63, 0.12);
+  --accent-strong: #a3672f;
+
+  --danger: #c0392b;
+  --success: #4b8b4b;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -37,6 +67,7 @@ html, body {
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 button {

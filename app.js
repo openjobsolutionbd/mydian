@@ -48,6 +48,8 @@ const settingsVaultInfo = el("settings-vault-info");
 const settingsClose = el("settings-close");
 const settingsLogout = el("settings-logout");
 const settingsClearCache = el("settings-clear-cache");
+const settingsThemeToggle = el("settings-theme-toggle");
+const themeColorMeta = el("theme-color-meta");
 
 // ---------- App state ----------
 let treeData = null;
@@ -879,6 +881,41 @@ function submitModal() {
   closeModal();
   if (action) action(value);
 }
+
+// ============================================================
+// Theme (dark/light)
+// ============================================================
+// index.html-এর <head>-এ একটা ছোট inline script আগেই localStorage থেকে
+// পড়ে <html data-theme="..."> বসিয়ে দেয় (flash এড়াতে, CSS লোড হওয়ার
+// আগেই)। এখানে শুধু toggle বাটনের লজিক আর টেক্সট/meta sync করা হচ্ছে।
+
+const THEME_KEY = "mydian-theme";
+const THEME_COLORS = { dark: "#151517", light: "#f2efe9" };
+
+function getCurrentTheme() {
+  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+}
+
+function applyTheme(theme) {
+  if (theme === "light") {
+    document.documentElement.setAttribute("data-theme", "light");
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+  themeColorMeta.setAttribute("content", THEME_COLORS[theme]);
+  // বাটনের টেক্সট সবসময় "এখন যা চলছে" দেখায় (আইকন সহ), ট্যাপ করলে উল্টো
+  // মোডে চলে যাবে — এটা settings মোডাল বন্ধ থাকা অবস্থাতেও sync রাখা
+  // দরকার, কারণ পরের বার খোলার সময় যেন সঠিক টেক্সট দেখায়।
+  settingsThemeToggle.textContent = theme === "light" ? "☀️ Light mode" : "🌙 Dark mode";
+}
+
+applyTheme(getCurrentTheme());
+
+settingsThemeToggle.addEventListener("click", () => {
+  const next = getCurrentTheme() === "light" ? "dark" : "light";
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+});
 
 // ============================================================
 // Settings modal (vault info + logout)
