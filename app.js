@@ -51,6 +51,14 @@ const settingsClearCache = el("settings-clear-cache");
 const settingsThemeToggle = el("settings-theme-toggle");
 const themeColorMeta = el("theme-color-meta");
 
+const deleteConfirmOverlay = el("delete-confirm-overlay");
+const deleteConfirmMessage = el("delete-confirm-message");
+const deleteConfirmForm = el("delete-confirm-form");
+const deleteConfirmPin = el("delete-confirm-pin");
+const deleteConfirmError = el("delete-confirm-error");
+const deleteConfirmCancel = el("delete-confirm-cancel");
+const deleteConfirmSubmit = el("delete-confirm-submit");
+
 // ---------- App state ----------
 let treeData = null;
 let expandedFolders = new Set(JSON.parse(localStorage.getItem("mydian_expanded") || "[]"));
@@ -212,9 +220,10 @@ function renderNode(node) {
     });
     row.querySelector('[data-action="delete"]')?.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (confirm(`This will delete all files in "${node.name}". Are you sure?`)) {
-        deleteFolder(node);
-      }
+      openDeleteConfirm({
+        message: `This will delete all files in "${node.name}". This cannot be undone.`,
+        onConfirm: () => deleteFolder(node),
+      });
     });
   } else {
     row.innerHTML = `
@@ -248,9 +257,10 @@ function renderNode(node) {
     });
     row.querySelector('[data-action="delete"]')?.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (confirm(`Delete "${node.name}"?`)) {
-        deleteFileNode(node);
-      }
+      openDeleteConfirm({
+        message: `"${node.name}" will be deleted. This cannot be undone.`,
+        onConfirm: () => deleteFileNode(node),
+      });
     });
 
     nodeEl.appendChild(row);
@@ -724,9 +734,10 @@ btnNewFolder.addEventListener("click", () => {
 
 btnDelete.addEventListener("click", () => {
   if (!currentFile) return;
-  if (confirm(`Delete "${currentFile.path}"?`)) {
-    deleteFileNode({ path: currentFile.path, sha: currentFile.sha });
-  }
+  openDeleteConfirm({
+    message: `"${currentFile.path}" will be deleted. This cannot be undone.`,
+    onConfirm: () => deleteFileNode({ path: currentFile.path, sha: currentFile.sha }),
+  });
 });
 
 btnDownload.addEventListener("click", async () => {
@@ -972,6 +983,82 @@ settingsClearCache.addEventListener("click", async () => {
   await cache.clearAll();
   window.location.reload();
 });
+
+// ============================================================
+// ডিলিট কনফার্ম মোডাল — PIN দিয়ে
+// ============================================================
+// আগে ডিলিট শুধু এক ক্লিকের browser confirm() দিয়ে হতো — ভুল করে চাপ
+// লেগে গেলেও ডিলিট হয়ে যেত। এখন ফাইল/ফোল্ডার ডিলিট করতে গেলে লগইন PIN
+// দিতে হয়; PIN ভুল হলে ডিলিট হয় না। PIN যাচাই হয় /api/login এন্ডপয়েন্ট
+// দিয়েই (আলাদা কোনো নতুন backend endpoint লাগেনি)।
+
+let pendingDeleteAction = null;
+let deleteVerifying = false;
+
+function openDeleteConfirm({ message, onConfirm }) {
+  // অন্য কোনো মোডাল খোলা থাকলে বন্ধ করে দেওয়া হচ্ছে — একসাথে দুটো stack হওয়া ঠেকাতে
+  closeModal();
+  closeSettingsModal();
+  deleteConfirmMessage.textContent = message;
+  deleteConfirmError.hidden = true;
+  deleteConfirmPin.value = "";
+  pendingDeleteAction = onConfirm;
+  deleteConfirmOverlay.hidden = false;
+  setTimeout(() => deleteConfirmPin.focus(), 50);
+}
+
+function closeDeleteConfirm() {
+  deleteConfirmOverlay.hidden = true;
+  deleteConfirmPin.value = "";
+  deleteConfirmError.hidden = true;
+  pendingDeleteAction = null;
+  deleteVerifying = false;
+  deleteConfirmSubmit.disabled = false;
+}
+
+deleteConfirmCancel.addEventListener("click", closeDeleteConfirm);
+deleteConfirmOverlay.addEventListener("click", (e) => {
+  if (e.target === deleteConfirmOverlay) closeDeleteConfirm();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !deleteConfirmOverlay.hidden) closeDeleteConfirm();
+});
+
+// input-টা আসলে একটা <form>-এর ভেতরে (submit/Enter সমর্থনের জন্য) — কিন্তু
+// এটা যেন পেজ রিলোড না করে, তাই submit event নিজে হ্যান্ডল করা হচ্ছে
+deleteConfirmForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  submitDeleteConfirm();
+});
+deleteConfirmSubmit.addEventListener("click", submitDeleteConfirm);
+
+async function submitDeleteConfirm() {
+  if (deleteVerifying) return; // একই সাথে দুইবার সাবমিট ঠেকাতে
+  const pin = deleteConfirmPin.value.trim();
+  if (!pin) return;
+  const action = pendingDeleteAction;
+  if (!action) return;
+
+  deleteVerifying = true;
+  deleteConfirmSubmit.disabled = true;
+  deleteConfirmError.hidden = true;
+  try {
+    // PIN সঠিক কিনা যাচাই করতে লগইন এন্ডপয়েন্টই ব্যবহার করা হচ্ছে — ভুল
+    // হলে এটা এরর দেবে, এবং ডিলিট অ্যাকশন চালানো হবে না
+    await api.login(pin);
+  } catch (err) {
+    deleteConfirmError.textContent = "Wrong PIN — nothing was deleted.";
+    deleteConfirmError.hidden = false;
+    deleteConfirmPin.value = "";
+    deleteConfirmPin.focus();
+    deleteVerifying = false;
+    deleteConfirmSubmit.disabled = false;
+    return;
+  }
+
+  closeDeleteConfirm();
+  action();
+}
 
 // ট্যাব বন্ধ করা, রিফ্রেশ, বা অন্য পেজে চলে যাওয়ার সময়ও একই ঝুঁকি ছিল —
 // সেভ না হওয়া পরিবর্তন থাকলে ব্রাউজারের নিজস্ব "আপনি কি নিশ্চিত?" ওয়ার্নিং

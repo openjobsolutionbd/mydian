@@ -150,6 +150,22 @@
     </div>
   </div>
 
+  <!-- ===== ডিলিট কনফার্ম মোডাল (PIN দিয়ে) ===== -->
+  <div class="modal-overlay" id="delete-confirm-overlay" hidden>
+    <div class="modal">
+      <h3>ডিলিট নিশ্চিত করুন</h3>
+      <p class="modal-hint" id="delete-confirm-message"></p>
+      <form id="delete-confirm-form">
+        <input type="password" id="delete-confirm-pin" inputmode="numeric" autocomplete="off" placeholder="আপনার PIN দিন" />
+      </form>
+      <p class="login-error" id="delete-confirm-error" hidden></p>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="delete-confirm-cancel">বাতিল</button>
+        <button class="btn-primary danger" id="delete-confirm-submit">ডিলিট করুন</button>
+      </div>
+    </div>
+  </div>
+
   <input type="file" id="file-input" accept="image/*,.pdf" hidden multiple />
 
   <script type="module" src="/app.js"></script>
