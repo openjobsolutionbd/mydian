@@ -16,11 +16,8 @@
 > হয়ে গেছে তার regression। প্রতিটা চেক দেখেশুনে টেস্ট করা হয়েছে —
 > ইচ্ছাকৃতভাবে ভুল ঢুকিয়ে যাচাই করা হয়েছে যে সত্যিই ধরে, শুধু চোখে ভালো
 > লাগার জন্য বসানো না। **"✅ সব ঠিক আছে" না দেখা পর্যন্ত push করা যাবে
-> না।** এছাড়া GitHub Actions (`.github/workflows/verify.yml`) push
-> হওয়ার পর GitHub-এর নিজের সার্ভারে স্বাধীনভাবে আবার একই চেক চালায় —
-> Claude কোনো কারণে লোকাল চেক স্কিপ করলেও এটা ধরবে। ইউজার নিজে এসব
-> চালাবেন না বা জানতে চাইবেন না — সম্পূর্ণ Claude-এর কাজের অংশ, ইউজারকে
-> শুধু ফলাফল জানাতে হবে।
+> না।** ইউজার নিজে এটা চালাবেন না বা এটা সম্পর্কে জানতে চাইবেন না — এটা
+> সম্পূর্ণ Claude-এর নিজের কাজের অংশ, ইউজারকে শুধু ফলাফল জানাতে হবে।
 
 ---
 
@@ -110,7 +107,9 @@ verify.sh — এই সবগুলো তখনো টানা হয়ন�
    ছিল।
 5. CSS brace balance
 6. **JSON/TOML/YAML config validity** (নতুন) — `manifest.json`,
-   `worker/wrangler.toml`, GitHub Actions workflow ফাইল
+   `worker/wrangler.toml`, আর ভবিষ্যতে কোনো GitHub Actions workflow
+   ফাইল যোগ হলে সেটাও (এখনো কোনো workflow ফাইল push করা যায়নি, নিচে
+   দ্রষ্টব্য)
 7. HTML গঠন
 8. DOM id মিল (`el()` ↔ `id=`)
 9. আগের ৩টা bug-এর regression canary
@@ -118,10 +117,19 @@ verify.sh — এই সবগুলো তখনো টানা হয়ন�
 **প্রতিটা চেক ইচ্ছাকৃতভাবে ভুল ঢুকিয়ে টেস্ট করা হয়েছে** (তারপর restore) —
 শুধু "থাকলে ভালো" না, সত্যিই ধরে এটা যাচাই করা হয়েছে।
 
-**GitHub Actions যোগ করা হয়েছে** (`.github/workflows/verify.yml`) — push
-হওয়ার পর GitHub-এর সার্ভারে স্বাধীনভাবে আবার একই চেক চলে, দ্বিতীয় স্তরের
-নিরাপত্তা হিসেবে। লাইভ deploy আটকায় না (Cloudflare Pages সরাসরি push
-শোনে), কিন্তু repo-র "Actions" ট্যাবে ফলাফল দেখা যাবে।
+> ⏸️ **GitHub Actions তৈরি করা হয়েছিল কিন্তু push করা যায়নি:**
+> `.github/workflows/verify.yml` লিখে টেস্ট করা হয়েছিল (push হওয়ার পর
+> GitHub-এর সার্ভারে স্বাধীনভাবে আবার একই চেক চালানোর জন্য), কিন্তু
+> GitHub নিজেই push আটকে দিয়েছে — বর্তমান token-এ `.github/workflows/`
+> ফাইল বদলানোর জন্য আলাদা একটা "Workflows" অনুমতি লাগে যা এখনকার
+> fine-grained PAT-এ নেই (শুধু "Contents: Read and write" আছে)। ফাইলটা
+> `/tmp/workflow-backup/verify.yml`-এ (Claude-এর নিজের temp container-এ,
+> সেশন শেষ হলে হারিয়ে যায়) এবং conversation history-তে সংরক্ষিত আছে।
+> ইউজার যদি token-এ "Workflows: Read and write" অনুমতি যোগ করে দেন
+> (GitHub token settings-এ fine-grained token এডিট করে), তাহলে এই
+> ফাইলটা আবার লিখে push করা যাবে। এই স্তর ছাড়াই বাকি ৯টা চেক পুরোপুরি
+> কাজ করছে ও প্রতি push-এর আগে Claude লোকালি চালায় — এটা শুধু একটা
+> *অতিরিক্ত/দ্বিতীয় স্তরের* নিরাপত্তা ছিল, মূল সুরক্ষা এতে নির্ভর করে না।
 
 > ⚠️ **সীমাবদ্ধতা:** এই sandbox environment-এ headless browser
 > (Playwright/Puppeteer) ইনস্টল করা যায়নি (network egress ব্লক করা,
@@ -353,7 +361,6 @@ Worker-এর `GITHUB_TOKEN` (fine-grained personal access token) কে
 | `scripts/verify.sh` / `verify.py` | প্রতি push-এর আগে বাধ্যতামূলক — ৯ স্তরের চেক (উপরে সেকশন ০-এ বিস্তারিত) |
 | `eslint.config.mjs` | ESLint নিয়ম — শুধু bug ধরার জন্য, style/formatting নিয়ম নেই |
 | `package.json` / `package-lock.json` | শুধু ESLint dependency-র জন্য, অ্যাপের নিজের কোনো build step নেই |
-| `.github/workflows/verify.yml` | প্রতি push-এর পর GitHub-এর সার্ভারে স্বাধীনভাবে verify.py আবার চালায় |
 | `CHANGELOG.md` | সাদামাটা ভাষায় লেখা পরিবর্তনের ইতিহাস — **প্রতি push-এর পর আপডেট করা বাধ্যতামূলক** |
 | `PROJECT_NOTES.md` | **এই ফাইল** — এখনকার আর্কিটেকচার/অবস্থার সংক্ষিপ্ত কনটেক্সট |
 | `HISTORY.md` | পুরনো bug ইতিহাস ও প্রথম আলোচনার বিস্তারিত প্রেক্ষাপট (রোজকার কাজে পড়ার দরকার নেই) |
