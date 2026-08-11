@@ -13,9 +13,10 @@
 // সবসময় আসল/চূড়ান্ত ডেটা, ক্যাশ শুধু গতি বাড়ানোর একটা layer।
 
 const DB_NAME = "mydian-cache";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_FILES = "files"; // key: path -> { path, content, sha, updatedAt }
 const STORE_META = "meta"; // key: "tree" -> { key, value: flatFiles[], updatedAt }
+const STORE_OUTBOX = "outbox"; // key: path -> { path, content, baseSha, queuedAt } — GitHub-এ এখনো না-পাঠানো অফলাইন এডিট
 
 let dbPromise = null;
 
@@ -34,6 +35,9 @@ function openDb() {
       }
       if (!db.objectStoreNames.contains(STORE_META)) {
         db.createObjectStore(STORE_META, { keyPath: "key" });
+      }
+      if (!db.objectStoreNames.contains(STORE_OUTBOX)) {
+        db.createObjectStore(STORE_OUTBOX, { keyPath: "path" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -74,12 +78,16 @@ export async function setFile(path, { content, sha }) {
 }
 
 // ফাইল ডিলিট হলে ক্যাশ থেকেও সরিয়ে দেয় — নাহলে একই পাথে নতুন ফাইল
-// বানালে পুরনো ক্যাশ করা কনটেন্ট ভুলভাবে instant দেখিয়ে ফেলতে পারত
+// বানালে পুরনো ক্যাশ করা কনটেন্ট ভুলভাবে instant দেখিয়ে ফেলতে পারত।
+// সাথে outbox-এ (সিঙ্ক-বাকি অফলাইন এডিট) এই পাথের কোনো এন্ট্রি থাকলে
+// সেটাও মুছে দেওয়া হয় — নাহলে ডিলিট হয়ে যাওয়া ফাইল পরে নেট ফিরলে
+// আবার ভুলভাবে GitHub-এ তৈরি হয়ে যেতে পারত।
 export async function deleteFile(path) {
   try {
     const db = await openDb();
-    const tx = db.transaction(STORE_FILES, "readwrite");
+    const tx = db.transaction([STORE_FILES, STORE_OUTBOX], "readwrite");
     tx.objectStore(STORE_FILES).delete(path);
+    tx.objectStore(STORE_OUTBOX).delete(path);
     return true;
   } catch (err) {
     return false;
@@ -150,6 +158,62 @@ export async function pruneToPaths(validPaths, graceMs = PRUNE_GRACE_MS) {
       if (now - (record.updatedAt || 0) < graceMs) continue; // এখনো grace period-এর মধ্যে — এখনই ছোঁয়া হচ্ছে না
       store.delete(record.path);
     }
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+// ============================================================
+// Outbox — অফলাইনে/নেটওয়ার্ক-ব্যর্থতায় GitHub-এ এখনো পাঠানো যায়নি এমন
+// এডিট সংরক্ষণ করে রাখে (IndexedDB-তে, তাই ট্যাব বন্ধ করলে/রিফ্রেশ করলেও
+// হারায় না)। নেট ফিরলেই app.js এই এন্ট্রিগুলো একে একে GitHub-এ পাঠানোর
+// চেষ্টা করে। সফল হলে এন্ট্রি মুছে যায়; ব্যর্থ হলে (এখনো অফলাইন) থেকে
+// যায়, পরের সুযোগে আবার চেষ্টা হয়।
+// ============================================================
+
+// একটা ফাইলের জন্য পেন্ডিং এডিট queue/আপডেট করে (একই path হলে ওভাররাইট —
+// শুধু সর্বশেষ কনটেন্টটাই দরকার, পুরনো পেন্ডিং ভার্সন রাখার দরকার নেই)
+export async function queueOutboxEntry(path, content, baseSha) {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE_OUTBOX, "readwrite");
+    tx.objectStore(STORE_OUTBOX).put({ path, content, baseSha, queuedAt: Date.now() });
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+export async function getOutboxEntry(path) {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE_OUTBOX, "readonly");
+    const result = await reqToPromise(tx.objectStore(STORE_OUTBOX).get(path));
+    return result || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+// সব পেন্ডিং এন্ট্রি ফেরত দেয় (queuedAt অনুযায়ী পুরনোটা আগে — একই ক্রমে
+// সিঙ্ক করলে আগে করা এডিট আগে GitHub-এ যায়)
+export async function getAllOutboxEntries() {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE_OUTBOX, "readonly");
+    const all = await reqToPromise(tx.objectStore(STORE_OUTBOX).getAll());
+    return (all || []).sort((a, b) => (a.queuedAt || 0) - (b.queuedAt || 0));
+  } catch (err) {
+    return [];
+  }
+}
+
+export async function clearOutboxEntry(path) {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE_OUTBOX, "readwrite");
+    tx.objectStore(STORE_OUTBOX).delete(path);
     return true;
   } catch (err) {
     return false;

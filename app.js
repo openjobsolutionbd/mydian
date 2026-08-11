@@ -97,6 +97,9 @@ function showApp() {
   loginScreen.hidden = true;
   appRoot.hidden = false;
   loadFileTree();
+  // আগের সেশনে অফলাইনে করা কোনো এডিট সিঙ্ক-বাকি থেকে গেলে (ট্যাব বন্ধ
+  // হয়ে গিয়েছিল, নেট আসেনি) এখনই সেটা পাঠানোর চেষ্টা করা হয়
+  flushOutbox();
 }
 
 // ============================================================
@@ -365,6 +368,19 @@ async function openTextFile(node, type, preloaded) {
       shownFromCache = true;
     }
 
+    // আগে অফলাইনে করা এডিট এখনো GitHub-এ সিঙ্ক হয়নি এমন কিছু থাকলে
+    // (outbox-এ পেন্ডিং) — সেটাই এই মুহূর্তে ফাইলের প্রকৃত/সর্বশেষ অবস্থা।
+    // isDirty true সেট করে রাখা হচ্ছে যাতে নিচের নেটওয়ার্ক fetch এই
+    // অসিঙ্ক-করা এডিটকে ভুলবশত পুরনো ভার্সন দিয়ে ওভাররাইট করে না ফেলে।
+    const pendingOutbox = await cache.getOutboxEntry(node.path);
+    if (pendingOutbox) {
+      isDirty = true;
+      if (currentFile && currentFile.path === node.path) {
+        setSaveIndicator("offline", "This offline edit hasn't synced yet");
+      }
+      flushOutbox();
+    }
+
     const fresh = await api.fetchFile(node.path);
     cache.setFile(node.path, fresh);
 
@@ -453,6 +469,17 @@ async function saveCurrentFile(content) {
 
 async function flushSave(targetFile, content) {
   if (!targetFile) return;
+
+  // প্রথমেই (network attempt শুরুর আগেই) এই এডিটটা লোকালি স্থায়ীভাবে
+  // (IndexedDB) সংরক্ষণ করে রাখা হচ্ছে — দুই জায়গায়:
+  //  ১) "files" ক্যাশ — যাতে ফাইলটা পরে খুললে (অফলাইনেও) এই সর্বশেষ
+  //     টাইপ করা কনটেন্টই তাৎক্ষণিক দেখা যায়।
+  //  ২) "outbox" — GitHub-এ এখনো না-পাঠানো এডিট হিসেবে চিহ্নিত থাকে,
+  //     ট্যাব বন্ধ হয়ে গেলে বা নেট চলে গেলেও হারায় না, নেট ফিরলে
+  //     স্বয়ংক্রিয়ভাবে পাঠানো হয় (flushOutbox দ্রষ্টব্য)।
+  cache.setFile(targetFile.path, { content, sha: targetFile.sha });
+  cache.queueOutboxEntry(targetFile.path, content, targetFile.sha);
+
   if (isSaving) {
     // আগের save এখনো GitHub-এর দিকে in-flight — একই সাথে দুটো PUT পাঠালে
     // পুরনো sha দিয়ে দ্বিতীয়টা 409 Conflict দিয়ে ব্যর্থ হতে পারে। তাই এখন
@@ -472,6 +499,7 @@ async function flushSave(targetFile, content) {
     );
     targetFile.sha = result.content.sha;
     cache.setFile(targetFile.path, { content, sha: targetFile.sha });
+    cache.clearOutboxEntry(targetFile.path); // GitHub-এ সফলভাবে পৌঁছে গেছে, আর পেন্ডিং না
     // এই সেভ যে ফাইলের জন্য শুরু হয়েছিল, ইউজার তখনো সেই ফাইলেই আছেন কিনা
     // চেক করেই isDirty/সেভ-ইন্ডিকেটর আপডেট করা হচ্ছে — এই চেক ছাড়া, ইউজার
     // ততক্ষণে অন্য একটা ফাইল খুলে ফেললে সেই নতুন ফাইলের স্ট্যাটাস ভুলভাবে
@@ -482,10 +510,8 @@ async function flushSave(targetFile, content) {
       setSaveIndicator("saved");
       setTimeout(() => setSaveIndicator(""), 2000);
     }
+    updatePendingBadge();
   } catch (err) {
-    if (currentFile === targetFile) {
-      setSaveIndicator("error", err.message);
-    }
     console.error(err);
     // sha conflict (409) হলে পুরনো sha দিয়ে আবার চেষ্টা করলে সেটাও একই
     // কারণে ব্যর্থ হবে — pending queue-তে থাকা content থাকলেও সেটা দিয়ে
@@ -496,8 +522,23 @@ async function flushSave(targetFile, content) {
     if (err.message && err.message.includes("has already been changed elsewhere")) {
       pendingSaveContent = null;
       pendingSaveTarget = null;
-      if (currentFile === targetFile) alert(err.message);
+      cache.clearOutboxEntry(targetFile.path); // ভুল base sha দিয়ে আর অটো-রিট্রাই করা হবে না
+      if (currentFile === targetFile) {
+        setSaveIndicator("error", err.message);
+        alert(err.message);
+      }
+    } else {
+      // নেটওয়ার্ক বা অন্য কোনো সাময়িক ব্যর্থতা — outbox এন্ট্রি ইচ্ছাকৃতভাবে
+      // রাখা হচ্ছে (উপরেই queue করা হয়েছে), নেট ফিরলে/পরের চেষ্টায়
+      // স্বয়ংক্রিয়ভাবে সিঙ্ক হবে। ইউজারকে "ব্যর্থ" না বলে অফলাইন অবস্থা
+      // স্পষ্টভাবে জানানো হচ্ছে যাতে দুশ্চিন্তা না হয়।
+      const looksOffline = !navigator.onLine || err.name === "TypeError";
+      if (currentFile === targetFile) {
+        setSaveIndicator(looksOffline ? "offline" : "error", err.message);
+      }
+      if (looksOffline) setSyncStatus("offline", "Offline — change saved locally, will sync when back online");
     }
+    updatePendingBadge();
   } finally {
     isSaving = false;
     if (pendingSaveContent !== null) {
@@ -524,10 +565,111 @@ function cancelPendingSave() {
 
 function setSaveIndicator(state, detail = "") {
   saveIndicator.className = "save-indicator " + state;
-  const map = { saving: "Saving…", saved: "Saved ✓", error: "Save failed", "": "" };
+  const map = { saving: "Saving…", saved: "Saved ✓", error: "Save failed", offline: "Saved offline", "": "" };
   saveIndicator.textContent = map[state] ?? "";
   saveIndicator.title = detail || "";
 }
+
+// ============================================================
+// Offline outbox — সিঙ্ক-বাকি এডিট নেট ফিরলে/অ্যাপ খোলার সময় স্বয়ংক্রিয়ভাবে পাঠায়
+// ============================================================
+
+let outboxFlushing = false;
+
+async function flushOutbox() {
+  if (outboxFlushing) return;
+  const entries = await cache.getAllOutboxEntries();
+  if (!entries.length) {
+    updatePendingBadge();
+    return;
+  }
+  outboxFlushing = true;
+  try {
+    for (const entry of entries) {
+      // বর্তমানে খোলা ফাইলের জন্য যদি সাধারণ সেভ-পাইপলাইন (flushSave)
+      // ইতিমধ্যে in-flight/queued থাকে, তাহলে এখানে সমান্তরালে আরেকটা PUT
+      // পাঠানো হচ্ছে না — নাহলে একই ফাইলে দুটো সেভ একসাথে গিয়ে ভুল sha
+      // দিয়ে একে অপরকে 409 Conflict দিয়ে ব্যর্থ করতে পারত। এই এন্ট্রি
+      // outbox-এই থেকে যাচ্ছে, flushSave নিজেই সফল হলে সেটা সরিয়ে দেবে।
+      const isCurrentFile = currentFile && entry.path === currentFile.path;
+      if (isCurrentFile && (isSaving || pendingSaveContent !== null)) {
+        continue;
+      }
+      // currentFile-এর জন্য PUT পাঠানোর পুরো সময়টা isSaving true রাখা
+      // হচ্ছে — এই সময়ের মধ্যে ইউজার টাইপ করলে সেটা flushSave-এর নিজস্ব
+      // "একই সময়ে একটাই PUT" নিয়ম মেনে pendingSaveContent-এ সারিবদ্ধ হবে,
+      // সরাসরি আরেকটা সমান্তরাল PUT পাঠাবে না।
+      if (isCurrentFile) isSaving = true;
+      try {
+        const base64 = api.encodeBase64Utf8(entry.content);
+        const result = await api.putFile(entry.path, base64, `Update ${entry.path}`, entry.baseSha);
+        await cache.clearOutboxEntry(entry.path);
+        await cache.setFile(entry.path, { content: entry.content, sha: result.content.sha });
+        if (isCurrentFile) {
+          currentFile.sha = result.content.sha;
+          isDirty = false;
+          setSaveIndicator("saved");
+          setTimeout(() => setSaveIndicator(""), 2000);
+        }
+      } catch (err) {
+        if (err.message && err.message.includes("has already been changed elsewhere")) {
+          // conflict — auto-merge সম্ভব না, এই এন্ট্রিটা বাদ দিয়ে বাকিগুলো
+          // চেষ্টা করা হচ্ছে। লোকাল ক্যাশে (files store) ইউজারের লেখা
+          // এখনো আছে, শুধু auto-sync queue থেকে সরানো হলো।
+          await cache.clearOutboxEntry(entry.path);
+          if (isCurrentFile) {
+            setSaveIndicator("error", err.message);
+            alert(err.message);
+          }
+        } else {
+          // নেটওয়ার্ক এখনো ফেরেনি (বা সাময়িক সমস্যা) — বাকি এন্ট্রিগুলোও
+          // একই কারণে ব্যর্থ হবে, তাই এখানেই থেমে পরের সুযোগে (online
+          // ইভেন্ট বা পরের অ্যাপ-লোড) আবার চেষ্টা করা হবে
+          if (isCurrentFile) isSaving = false;
+          break;
+        }
+      }
+      if (isCurrentFile) {
+        isSaving = false;
+        // PUT চলাকালীন ইউজার নতুন করে টাইপ করে থাকলে সেটা এতক্ষণে
+        // pendingSaveContent-এ জমা হয়ে থাকবে — flushSave নিজে যেভাবে
+        // এই চেইন চালায়, এখানেও একইভাবে সেটা এখনই পাঠিয়ে দেওয়া হচ্ছে
+        if (pendingSaveContent !== null) {
+          const nextContent = pendingSaveContent;
+          const nextTarget = pendingSaveTarget;
+          pendingSaveContent = null;
+          pendingSaveTarget = null;
+          flushSave(nextTarget, nextContent);
+        }
+      }
+    }
+  } finally {
+    outboxFlushing = false;
+    updatePendingBadge();
+  }
+}
+
+// sync-dot/status-এ কতগুলো পরিবর্তন এখনো সিঙ্ক হওয়া বাকি সেটা দেখায় —
+// এটা flushOutbox শেষে এবং অ্যাপ চালু হওয়ার সময় কল হয়
+async function updatePendingBadge() {
+  const entries = await cache.getAllOutboxEntries();
+  if (entries.length > 0) {
+    setSyncStatus("offline", `${entries.length} change${entries.length > 1 ? "s" : ""} pending sync`);
+  } else if (navigator.onLine) {
+    setSyncStatus("online", "Synced");
+  }
+}
+
+// ব্রাউজারের নেটওয়ার্ক স্ট্যাটাস বদলালেই (আগে পরের loadFileTree() কলের
+// অপেক্ষা না করে) সাথে সাথে sync-dot আপডেট হয়, আর নেট ফিরলে outbox-এ
+// জমে থাকা এডিট থাকলে সেগুলো স্বয়ংক্রিয়ভাবে পাঠানোর চেষ্টা হয়
+window.addEventListener("online", () => {
+  setSyncStatus("syncing", "Syncing…");
+  flushOutbox();
+});
+window.addEventListener("offline", () => {
+  setSyncStatus("offline", "Offline — no internet connection");
+});
 
 // ============================================================
 // Create / delete
@@ -714,7 +856,10 @@ function closeEditor() {
 // Toolbar actions
 // ============================================================
 
-btnRefresh.addEventListener("click", loadFileTree);
+btnRefresh.addEventListener("click", () => {
+  loadFileTree();
+  flushOutbox();
+});
 
 btnNewFile.addEventListener("click", () => {
   openModal({
@@ -967,8 +1112,13 @@ settingsLogout.addEventListener("click", () => {
   // চাপলে সেভ (300ms debounce, বা flushSave ইতিমধ্যে GitHub-এর দিকে
   // in-flight/queued থাকলে) সম্পূর্ণ না হতেই reload হয়ে সেই পরিবর্তন
   // চিরতরে হারিয়ে যেত — কোনো সতর্কতা ছাড়াই।
+  //
+  // নোট: offline outbox থাকায় ৩০০ms debounce পার হয়ে যাওয়া যেকোনো এডিট
+  // এখন লগ আউটের পরও IndexedDB-তে (এই ব্রাউজারেই, session-নিরপেক্ষভাবে)
+  // থেকে যায় এবং পরের বার লগইন করলেই স্বয়ংক্রিয়ভাবে সিঙ্ক হয়ে যাবে —
+  // তাই বার্তাটা এখন আর "will lose them" না বলে বাস্তবসম্মতভাবে জানাচ্ছে।
   const msg = isDirty
-    ? "You have unsaved changes — logging out will lose them. Log out anyway?"
+    ? "Some recent changes haven't synced to GitHub yet — anything typed in the last few seconds could be lost if it hasn't saved yet. The rest is stored in this browser and will sync automatically next time you log in. Log out anyway?"
     : "Log out? You'll need your PIN to log back in.";
   if (!confirm(msg)) return;
   api.clearSession();
@@ -979,6 +1129,19 @@ settingsClearCache.addEventListener("click", async () => {
   // এটা শুধু লোকাল offline ক্যাশ (IndexedDB) মোছে — GitHub-এর কোনো
   // ডেটা মোছে না। sidebar/ফাইল কোনো কারণে পুরনো/অসামঞ্জস্যপূর্ণ মনে
   // হলে ট্রাবলশুটিং-এর জন্য এটা ব্যবহার করা যায়।
+  //
+  // নিরাপত্তা চেক: যদি অফলাইনে করা কোনো এডিট এখনো GitHub-এ সিঙ্ক না হয়ে
+  // outbox-এ পেন্ডিং থাকে, ক্যাশ পরিষ্কার করার আগে সেটা স্পষ্টভাবে জানানো
+  // হচ্ছে এবং থামিয়ে দেওয়া হচ্ছে — নাহলে সিঙ্ক-বাকি লেখা বিভ্রান্তিকরভাবে
+  // হারিয়ে যেতে পারত (সেভ হয়েছে বলে মনে হলেও আসলে GitHub-এ পৌঁছায়নি)।
+  const pending = await cache.getAllOutboxEntries();
+  if (pending.length > 0) {
+    alert(
+      `${pending.length} change${pending.length > 1 ? "s" : ""} haven't synced to GitHub yet (waiting on an internet connection). ` +
+      `Please connect to the internet and let the sync finish, then clear the cache.`
+    );
+    return;
+  }
   if (!confirm("Clear the local cache? This won't delete any of your notes, it only resets the fast-loading copy.")) return;
   await cache.clearAll();
   window.location.reload();

@@ -431,6 +431,7 @@ input {
 .save-indicator.saving { color: var(--accent); }
 .save-indicator.saved { color: var(--success); }
 .save-indicator.error { color: var(--danger); }
+.save-indicator.offline { color: #c9a227; }
 
 /* ============ Editor area ============ */
 .editor-area {
