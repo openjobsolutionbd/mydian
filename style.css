@@ -303,6 +303,18 @@ input {
   color: var(--accent-strong);
 }
 
+.tree-row.drag-over {
+  background: var(--bg-active);
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -1.5px;
+}
+
+.file-tree.drag-over-root {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -3px;
+  border-radius: var(--radius-sm);
+}
+
 .tree-row .chevron {
   width: 14px;
   height: 14px;

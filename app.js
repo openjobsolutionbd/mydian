@@ -184,6 +184,7 @@ function renderNode(node) {
   const row = document.createElement("div");
   row.className = "tree-row";
   row.dataset.path = node.path;
+  row.dataset.type = node.type; // "folder"/"file" — ড্র্যাগ-ড্রপে টার্গেট ফোল্ডার বের করতে ব্যবহার হয়
 
   if (node.type === "folder") {
     const isOpen = expandedFolders.has(node.path);
@@ -958,11 +959,153 @@ function uploadAttachment(file) {
   });
 }
 
+// ---------- Sidebar drag & drop (OS ফাইল/ফোল্ডার সরাসরি sidebar-এ টেনে আনা) ----------
+
+let dragHighlightEl = null;
+
+fileTreeEl.addEventListener("dragover", (e) => {
+  if (!e.dataTransfer.types.includes("Files")) return; // শুধু OS থেকে আসা ফাইল-ড্র্যাগেই সাড়া দেওয়া হচ্ছে
+  e.preventDefault(); // এটা না করলে ব্রাউজার ডিফল্ট আচরণ হিসেবে ফাইলটা নতুন ট্যাবে খুলে ফেলবে, drop ইভেন্টই আসবে না
+  e.dataTransfer.dropEffect = "copy";
+  updateDragHighlight(e);
+});
+
+fileTreeEl.addEventListener("dragleave", (e) => {
+  // sidebar-এর ভেতরের একটা child থেকে আরেকটা child-এ গেলেও dragleave
+  // ফায়ার হয় — তাই সত্যিই sidebar-এর বাইরে বেরিয়ে গেছে কিনা সেটা চেক
+  // করেই হাইলাইট সরানো হচ্ছে, নাহলে হাইলাইট ঝিকিমিকি করত
+  if (!fileTreeEl.contains(e.relatedTarget)) clearDragHighlight();
+});
+
+fileTreeEl.addEventListener("drop", async (e) => {
+  if (!e.dataTransfer.types.includes("Files")) return;
+  e.preventDefault();
+  const targetFolder = dropTargetFolder(e);
+  clearDragHighlight();
+  const dropped = await readDroppedEntries(e.dataTransfer);
+  if (!dropped.length) return;
+  for (const { file, relPath } of dropped) {
+    await uploadDroppedFile(file, targetFolder, relPath);
+  }
+  await loadFileTree();
+});
+
+// মাউস কোন row-এর উপর আছে সেটা দেখে সেই ফোল্ডারে ড্রপ হবে বলে হাইলাইট
+// করা হয় (ফাইলের উপর হলে তার প্যারেন্ট ফোল্ডার), নাহলে root-এ ড্রপের
+// জন্য পুরো sidebar হাইলাইট হয়
+function updateDragHighlight(e) {
+  const row = e.target.closest && e.target.closest(".tree-row[data-path]");
+  const folderRow = row && row.dataset.type === "folder" ? row : null;
+  if (folderRow === dragHighlightEl) return;
+  clearDragHighlight();
+  if (folderRow) {
+    folderRow.classList.add("drag-over");
+    dragHighlightEl = folderRow;
+  } else {
+    fileTreeEl.classList.add("drag-over-root");
+    dragHighlightEl = "root";
+  }
+}
+
+function clearDragHighlight() {
+  fileTreeEl.querySelectorAll(".tree-row.drag-over").forEach((r) => r.classList.remove("drag-over"));
+  fileTreeEl.classList.remove("drag-over-root");
+  dragHighlightEl = null;
+}
+
+// ড্রপ কোন row-এর উপর হয়েছে সেটা থেকে target ফোল্ডার বের করে —
+// ফোল্ডারের উপর ড্রপ হলে সেই ফোল্ডার, ফাইলের উপর হলে তার প্যারেন্ট
+// ফোল্ডার, আর কোনো row না হলে (খালি জায়গায়) vault-এর root
+function dropTargetFolder(e) {
+  const row = e.target.closest && e.target.closest(".tree-row[data-path]");
+  if (!row) return "";
+  const path = row.dataset.path;
+  if (row.dataset.type === "folder") return path;
+  const idx = path.lastIndexOf("/");
+  return idx === -1 ? "" : path.slice(0, idx);
+}
+
+// dataTransfer থেকে { file, relPath } এন্ট্রির লিস্ট বের করে। Chrome/Edge/
+// নতুন Firefox-এ webkitGetAsEntry() সাপোর্ট থাকলে পুরো ফোল্ডার (সাব-ফোল্ডার
+// সহ, Obsidian-এর মতো) ড্র্যাগ করে আনা যায়; না থাকলে (পুরনো ব্রাউজার/Safari)
+// শুধু আলাদা আলাদা ফাইলগুলো fallback হিসেবে import হয়, ফোল্ডার স্কিপ হয়ে যায়।
+async function readDroppedEntries(dataTransfer) {
+  const items = Array.from(dataTransfer.items || []);
+  const supportsEntries = items.length > 0 && typeof items[0].webkitGetAsEntry === "function";
+
+  if (!supportsEntries) {
+    return Array.from(dataTransfer.files || []).map((file) => ({ file, relPath: file.name }));
+  }
+
+  const results = [];
+  async function walk(entry, prefix) {
+    if (entry.isFile) {
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      results.push({ file, relPath: prefix + entry.name });
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      // Chrome-এ readEntries() একবারে সর্বোচ্চ ১০০টা এন্ট্রি দেয় — খালি
+      // array না পাওয়া পর্যন্ত বারবার কল করে সবগুলো জোগাড় করা হচ্ছে
+      let children = [];
+      let batch;
+      do {
+        batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+        children = children.concat(batch);
+      } while (batch.length > 0);
+      for (const child of children) {
+        await walk(child, prefix + entry.name + "/");
+      }
+    }
+  }
+
+  for (const item of items) {
+    const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+    if (entry) await walk(entry, "");
+  }
+  return results;
+}
+
+function uploadDroppedFile(file, targetFolder, relPath) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64 = reader.result.split(",")[1];
+        const safeRelPath = sanitizeRelPath(relPath || file.name);
+        const path = targetFolder ? `${targetFolder}/${safeRelPath}` : safeRelPath;
+        await api.putFile(path, base64, `Add ${path} (drag & drop)`);
+        resolve();
+      } catch (err) {
+        alert(`Could not import "${file.name}": ` + err.message);
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function sanitizePathSegment(seg) {
+  return seg.replace(/^\.+/, "").replace(/[\x00-\x1f<>:"|?*]/g, "_").trim();
+}
+
 function sanitizeFilename(name) {
   // path separator ('/', '\'), leading dots (hidden file/'..'), এবং
   // অন্যান্য filesystem-এ সমস্যাযুক্ত ক্যারেক্টার সরিয়ে দেওয়া হয়
   const base = name.split(/[/\\]/).pop() || "file";
-  const cleaned = base.replace(/^\.+/, "").replace(/[\x00-\x1f<>:"|?*]/g, "_").trim();
+  const cleaned = sanitizePathSegment(base);
+  return cleaned || "file";
+}
+
+// drag-drop দিয়ে পুরো ফোল্ডার import করার সময় সাব-ফোল্ডার গঠন ঠিক
+// রাখতে হয় — তাই sanitizeFilename-এর মতো শুধু শেষ অংশ না নিয়ে,
+// প্রতিটা অংশ আলাদা করে sanitize করে আবার জোড়া দেওয়া হচ্ছে
+function sanitizeRelPath(relPath) {
+  const cleaned = relPath
+    .split(/[/\\]/)
+    .map(sanitizePathSegment)
+    .filter(Boolean)
+    .join("/");
   return cleaned || "file";
 }
 
