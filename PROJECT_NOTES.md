@@ -330,6 +330,12 @@ Worker-এর `GITHUB_TOKEN` (fine-grained personal access token) কে
   চালাতে হয় (`worker/` ডিরেক্টরি থেকে)। `worker.js`-এ কোনো ফিক্স করার
   পর এটা মনে করিয়ে দেওয়া জরুরি, নাহলে ইউজার ভাবতে পারেন ফিক্স হয়ে গেছে
   কিন্তু পুরনো কোডই লাইভ থাকবে।
+  **আপডেট (২০২৬-০৮-১১):** ইউজার নিজে `npx wrangler deploy` চালিয়ে
+  repo-allowlist security fix লাইভ করেছেন (Version ID
+  `d2735080-d5a9-4378-a0c8-348250957352`)। এই নির্দিষ্ট পেন্ডিং আইটেমটা
+  এখন সমাধান — পরবর্তী সেশনে আর জিজ্ঞেস করার দরকার নেই। তবে ভবিষ্যতে
+  `worker.js`-এ নতুন কোনো পরিবর্তন হলে আবার মনে করিয়ে দিতে হবে (deploy
+  প্রতিবার আলাদাভাবে করতে হয়)।
 - **`isAllowedRepo()` allowlist ম্যানুয়ালি sync রাখতে হবে:**
   `worker/worker.js`-এর `DEFAULT_ALLOWED_REPOS`-এ এখন
   `openjobsolutionbd/mydian` আর `openjobsolutionbd/mydian-vault`
