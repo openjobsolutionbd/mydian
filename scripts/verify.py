@@ -42,6 +42,28 @@ def ok(msg):
 
 
 # ============================================================
+# ০. এই চেক-আপ স্ক্রিপ্টগুলো নিজেরাই ঠিক আছে কিনা ("test the test") —
+#    verify.py-তেই যদি ভুল থাকে, বাকি সব চেক অর্থহীন হয়ে যায়।
+# ============================================================
+check("চেক-আপ স্ক্রিপ্ট নিজেই ঠিক আছে কিনা")
+result = subprocess.run(
+    [sys.executable, "-m", "py_compile", "scripts/verify.py"],
+    capture_output=True, text=True,
+)
+if result.returncode != 0:
+    fail(f"scripts/verify.py-তেই সমস্যা:\n{result.stderr.strip()}")
+else:
+    ok("scripts/verify.py")
+
+for shf in glob.glob("scripts/*.sh"):
+    result = subprocess.run(["bash", "-n", shf], capture_output=True, text=True)
+    if result.returncode != 0:
+        fail(f"{shf} — bash syntax error:\n{result.stderr.strip()}")
+    else:
+        ok(shf)
+
+
+# ============================================================
 # ১. প্রতিটা JS ফাইলের syntax ঠিক আছে কিনা
 # ============================================================
 # গুরুত্বপূর্ণ নোট: `node -c file.js` সরাসরি চালালে কিছু নির্দিষ্ট
@@ -73,7 +95,95 @@ finally:
 
 
 # ============================================================
-# ২. CSS ফাইলে brace ({/}) সংখ্যা মিলছে কিনা (basic malformed-CSS ধরা)
+# ২. ESLint — গভীর static analysis (undefined variable, ব্যবহার না
+#    হওয়া import, ইত্যাদি ধরে যা শুধু syntax check ধরে না)
+# ============================================================
+check("ESLint (গভীর কোড analysis)")
+eslint_bin = "node_modules/.bin/eslint"
+lint_targets = ["app.js", "js/api.js", "js/cache.js", "js/tree.js", "worker/worker.js"]
+lint_targets = [f for f in lint_targets if os.path.isfile(f)]
+if os.path.isfile(eslint_bin) and lint_targets:
+    result = subprocess.run([eslint_bin, "--no-warn-ignored"] + lint_targets, capture_output=True, text=True)
+    if result.returncode != 0:
+        fail("ESLint সমস্যা পেয়েছে:\n" + result.stdout.strip())
+    else:
+        ok(f"{len(lint_targets)}টা ফাইল — কোনো undefined variable/undefined reference নেই")
+else:
+    print("  (ESLint ইনস্টল করা নেই — `npm install` চালিয়ে যোগ করা যায়, স্কিপ করা হলো)")
+
+
+# ============================================================
+# ৩. import/export মিল আছে কিনা — একটা ফাইল অন্য ফাইল থেকে যা import
+#    করছে, টার্গেট ফাইলে সেটা আসলেই export করা আছে কিনা, আর path-টা
+#    আদৌ resolve হয় কিনা (টাইপো করা ফাইলের নাম)। এটা গুরুত্বপূর্ণ কারণ
+#    `node -c` শুধু একটা ফাইলের ভেতরের syntax দেখে — import path ভুল
+#    থাকলেও (যেমন ভুল বানানে ফাইলের নাম) সেটা ধরে না, টেস্ট করে
+#    নিশ্চিত হওয়া গেছে।
+# ============================================================
+check("Import/export মিল ও path resolution")
+
+
+def get_exported_names(filepath):
+    """একটা JS ফাইল থেকে সব export-করা নাম বের করে।"""
+    content = open(filepath, encoding="utf-8").read()
+    names = set()
+    names.update(re.findall(r'export\s+(?:async\s+)?function\s+(\w+)', content))
+    names.update(re.findall(r'export\s+(?:const|let|var)\s+(\w+)', content))
+    names.update(re.findall(r'export\s+class\s+(\w+)', content))
+    for block in re.findall(r'export\s*\{([^}]+)\}', content):
+        for item in block.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            # "name as alias" হলে বাইরের দুনিয়ার কাছে exported নাম হলো alias
+            parts = re.split(r'\s+as\s+', item)
+            names.add(parts[-1].strip())
+    return names
+
+
+import_export_checked = 0
+import_export_failures_before = len(failures)
+for src in js_files:
+    if not os.path.isfile(src) or "editor.js" in src:
+        continue  # editor.js third-party bundle, নিজেদের import structure না
+    content = open(src, encoding="utf-8").read()
+    src_dir = os.path.dirname(src)
+
+    for m in re.finditer(r'import\s+\*\s+as\s+\w+\s+from\s+["\']([^"\']+)["\']', content):
+        target = m.group(1)
+        if not target.startswith("."):
+            continue  # npm প্যাকেজ ইত্যাদি, স্কিপ
+        resolved = os.path.normpath(os.path.join(src_dir, target))
+        import_export_checked += 1
+        if not os.path.isfile(resolved):
+            fail(f'{src} — import path "{target}" resolve হচ্ছে না (ফাইল নেই: {resolved})')
+
+    for m in re.finditer(r'import\s*\{([^}]+)\}\s*from\s*["\']([^"\']+)["\']', content):
+        names_part, target = m.group(1), m.group(2)
+        if not target.startswith("."):
+            continue
+        resolved = os.path.normpath(os.path.join(src_dir, target))
+        import_export_checked += 1
+        if not os.path.isfile(resolved):
+            fail(f'{src} — import path "{target}" resolve হচ্ছে না (ফাইল নেই: {resolved})')
+            continue
+        exported = get_exported_names(resolved)
+        for item in names_part.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            # "X as Y" হলে টার্গেট ফাইলে exported নাম X (Y স্থানীয় নাম)
+            parts = re.split(r'\s+as\s+', item)
+            wanted = parts[0].strip()
+            if wanted not in exported:
+                fail(f'{src} — "{wanted}" import করা হয়েছে "{target}" থেকে, কিন্তু ওই ফাইলে এই নামে কোনো export নেই')
+
+if import_export_checked and len(failures) == import_export_failures_before:
+    ok(f"{import_export_checked}টা import statement — সব path আর নাম মিলেছে")
+
+
+# ============================================================
+# ৪. CSS ফাইলে brace ({/}) সংখ্যা মিলছে কিনা (basic malformed-CSS ধরা)
 # ============================================================
 check("CSS brace balance (style.css)")
 if os.path.isfile("style.css"):
@@ -87,7 +197,46 @@ if os.path.isfile("style.css"):
 
 
 # ============================================================
-# ৩. HTML ট্যাগ ঠিকমতো বন্ধ হয়েছে কিনা (malformed HTML ধরা)
+# ৫. JSON/TOML কনফিগ ফাইল আসলেই valid কিনা — একটা কমা/quote ভুল
+#    থাকলেও পুরো ফাইল silently ভেঙে যেতে পারে (manifest.json ভাঙা
+#    থাকলে PWA install নাও হতে পারে, wrangler.toml ভাঙা থাকলে
+#    deploy-ই ব্যর্থ হবে)।
+# ============================================================
+check("Config ফাইল validity (JSON/TOML/YAML)")
+import json
+
+for jf in ["manifest.json", "package.json"]:
+    if os.path.isfile(jf):
+        try:
+            json.loads(open(jf, encoding="utf-8").read())
+            ok(f"{jf} — valid JSON")
+        except json.JSONDecodeError as e:
+            fail(f"{jf} — invalid JSON: {e}")
+
+toml_file = "worker/wrangler.toml"
+if os.path.isfile(toml_file):
+    try:
+        import tomllib
+        with open(toml_file, "rb") as fh:
+            tomllib.load(fh)
+        ok(f"{toml_file} — valid TOML")
+    except Exception as e:
+        fail(f"{toml_file} — invalid TOML: {e}")
+
+for yml in glob.glob(".github/workflows/*.yml") + glob.glob(".github/workflows/*.yaml"):
+    try:
+        import yaml
+        with open(yml, encoding="utf-8") as fh:
+            yaml.safe_load(fh)
+        ok(f"{yml} — valid YAML")
+    except ImportError:
+        pass  # PyYAML না থাকলে চুপচাপ স্কিপ, বাধ্যতামূলক না
+    except Exception as e:
+        fail(f"{yml} — invalid YAML: {e}")
+
+
+# ============================================================
+# ৬. HTML ট্যাগ ঠিকমতো বন্ধ হয়েছে কিনা (malformed HTML ধরা)
 # ============================================================
 check("HTML structure (index.html)")
 
@@ -141,7 +290,7 @@ if os.path.isfile("index.html"):
 
 
 # ============================================================
-# ৪. app.js-এ el("xxx") দিয়ে যেসব DOM id রেফারেন্স করা হয়েছে, সেগুলো
+# ৭. app.js-এ el("xxx") দিয়ে যেসব DOM id রেফারেন্স করা হয়েছে, সেগুলো
 #    আসলেই index.html-এ আছে কিনা — এটাই সবচেয়ে সাধারণ bug-এর কারণ:
 #    কোনো এলিমেন্টের id বদলানো/মোছা হলে JS-এ রেফারেন্স করা থেকে যায়,
 #    আর app সাইলেন্টলি ভেঙে যায় (কোনো error console-এ নাও দেখা যেতে পারে)।
@@ -163,7 +312,7 @@ if os.path.isfile("app.js") and os.path.isfile("index.html"):
 
 
 # ============================================================
-# ৫. পুরনো, একবার ভেঙে যাওয়া জিনিসগুলোর জন্য "canary" চেক — এই নির্দিষ্ট
+# ৮. পুরনো, একবার ভেঙে যাওয়া জিনিসগুলোর জন্য "canary" চেক — এই নির্দিষ্ট
 #    জায়গাগুলো আগে একবার ভেঙেছিল বলে এখানে বাড়তি সতর্কতা রাখা হলো।
 # ============================================================
 check("পুরনো bug-এর জায়গায় regression চেক")

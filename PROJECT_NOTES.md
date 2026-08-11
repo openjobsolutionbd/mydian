@@ -9,13 +9,18 @@
 > ```bash
 > bash scripts/verify.sh
 > ```
-> চালাতে হবে। এটা JS syntax, CSS/HTML গঠন, DOM id মিল, আর আগে যেসব bug
-> একবার হয়ে গেছে (`[hidden]` রুল, `WORKER_URL` placeholder, editor.js
-> সাইজ) সেগুলোর regression চেক করে। **"✅ সব ঠিক আছে" না দেখা পর্যন্ত
-> push করা যাবে না** — কোনো ❌ দেখলে push করার আগে সেটা ঠিক করতে হবে।
-> ইউজার নিজে এটা চালাবেন না বা এটা সম্পর্কে জানতে চাইবেন না — এটা
-> সম্পূর্ণ Claude-এর নিজের কাজের অংশ, ইউজারকে শুধু ফলাফল (কাজ হয়েছে/
-> হয়নি) জানাতে হবে।
+> চালাতে হবে (প্রথমবার হলে আগে `npm install` — ESLint লাগবে)। এটা ৯ স্তরে
+> চেক করে: নিজের স্ক্রিপ্ট ঠিক আছে কিনা, JS syntax, ESLint (undefined
+> variable ইত্যাদি গভীর ভুল), import/export path মিল, CSS/HTML গঠন,
+> JSON/TOML/YAML config validity, DOM id মিল, আর আগে যেসব bug একবার
+> হয়ে গেছে তার regression। প্রতিটা চেক দেখেশুনে টেস্ট করা হয়েছে —
+> ইচ্ছাকৃতভাবে ভুল ঢুকিয়ে যাচাই করা হয়েছে যে সত্যিই ধরে, শুধু চোখে ভালো
+> লাগার জন্য বসানো না। **"✅ সব ঠিক আছে" না দেখা পর্যন্ত push করা যাবে
+> না।** এছাড়া GitHub Actions (`.github/workflows/verify.yml`) push
+> হওয়ার পর GitHub-এর নিজের সার্ভারে স্বাধীনভাবে আবার একই চেক চালায় —
+> Claude কোনো কারণে লোকাল চেক স্কিপ করলেও এটা ধরবে। ইউজার নিজে এসব
+> চালাবেন না বা জানতে চাইবেন না — সম্পূর্ণ Claude-এর কাজের অংশ, ইউজারকে
+> শুধু ফলাফল জানাতে হবে।
 
 ---
 
@@ -68,6 +73,42 @@ verify.sh — এই সবগুলো তখনো টানা হয়ন�
 সেশন সমান্তরালে চলতে পারে জানা থাকলে) push-এর ঠিক আগে আরেকবার fetch
 করে remote এগিয়ে গেছে কিনা দেখে নেওয়াটা জরুরি — এই নিয়মটা আগে থেকেই
 ছিল, এবারও ঠিকভাবে কাজ করেছে (silently overwrite হয়নি)।
+
+**তার আগের commit (২০২৬-০৮-১০):** Push-চেকের সিস্টেম অনেক শক্তিশালী করা
+হয়েছে। আগে শুধু syntax/id-মিল/৩টা canary চেক ছিল — এখন `scripts/verify.py`
+৯ স্তরে চেক করে:
+1. নিজের চেক-স্ক্রিপ্টগুলোই ঠিক আছে কিনা ("test the test")
+2. JS syntax (আগে যেভাবে `.mjs` trick ব্যবহার করে fix করা হয়েছিল)
+3. **ESLint** (নতুন dependency, `npm install` লাগে) — undefined variable,
+   ব্যবহার না হওয়া কোড ইত্যাদি ধরে যা শুধু syntax check ধরে না
+4. **import/export path resolution** (নতুন) — একটা বড় ফাঁক পাওয়া গিয়েছিল:
+   `node -c` টাইপো করা import path (যেমন ভুল ফাইলের নাম) বা ভুল named
+   import একদমই ধরত না, কারণ এটা module resolve করে না, শুধু ভেতরের
+   syntax দেখে। টেস্ট করে নিশ্চিত হওয়া গেছে এই bug class-টা এতদিন অরক্ষিত
+   ছিল।
+5. CSS brace balance
+6. **JSON/TOML/YAML config validity** (নতুন) — `manifest.json`,
+   `worker/wrangler.toml`, GitHub Actions workflow ফাইল
+7. HTML গঠন
+8. DOM id মিল (`el()` ↔ `id=`)
+9. আগের ৩টা bug-এর regression canary
+
+**প্রতিটা চেক ইচ্ছাকৃতভাবে ভুল ঢুকিয়ে টেস্ট করা হয়েছে** (তারপর restore) —
+শুধু "থাকলে ভালো" না, সত্যিই ধরে এটা যাচাই করা হয়েছে।
+
+**GitHub Actions যোগ করা হয়েছে** (`.github/workflows/verify.yml`) — push
+হওয়ার পর GitHub-এর সার্ভারে স্বাধীনভাবে আবার একই চেক চলে, দ্বিতীয় স্তরের
+নিরাপত্তা হিসেবে। লাইভ deploy আটকায় না (Cloudflare Pages সরাসরি push
+শোনে), কিন্তু repo-র "Actions" ট্যাবে ফলাফল দেখা যাবে।
+
+> ⚠️ **সীমাবদ্ধতা:** এই sandbox environment-এ headless browser
+> (Playwright/Puppeteer) ইনস্টল করা যায়নি (network egress ব্লক করা,
+> browser binary download হয় না) — তাই সত্যিকারের অ্যাপ চালিয়ে
+> ক্লিক-করে-টেস্ট করা (E2E) সম্ভব হয়নি, শুধু static analysis। GitHub
+> Actions-এর নিজস্ব পরিবেশে Playwright চলতে পারে (সম্পূর্ণ internet
+> access আছে), কিন্তু login flow-এর জন্য real credential/worker লাগে
+> বলে সেটা এখনো যোগ করা হয়নি — ভুল/flaky automated test যোগ করার চেয়ে
+> না করাই ভালো মনে হয়েছে।
 
 **তার আগের commit (২০২৬-০৮-১০):** Dark/Light থিম টগল যোগ করা হয়েছে।
 `style.css`-এর `:root`-এ সব রঙ CSS variable আকারে ছিল বলে বাস্তবায়ন সহজ
@@ -287,7 +328,10 @@ Worker-এর `GITHUB_TOKEN` (fine-grained personal access token) কে
 | `SETUP.md` | ইউজার-ফেসিং সেটআপ গাইড (PAT বানানো, Worker deploy, ইত্যাদি) |
 | `icons/` | PWA আইকন (192/512px) — "M" মার্ক (Inter Bold), full-bleed (maskable-safe) |
 | `scripts/bump-build-id.sh` | প্রতি push-এর আগে চালানো হয়, `sw.js`-এর `BUILD_ID` অটো-আপডেট করে |
-| `scripts/verify.sh` / `verify.py` | প্রতি push-এর আগে বাধ্যতামূলক — syntax/গঠন/regression চেক (উপরে ফাইলের শুরুতে বিস্তারিত) |
+| `scripts/verify.sh` / `verify.py` | প্রতি push-এর আগে বাধ্যতামূলক — ৯ স্তরের চেক (উপরে সেকশন ০-এ বিস্তারিত) |
+| `eslint.config.mjs` | ESLint নিয়ম — শুধু bug ধরার জন্য, style/formatting নিয়ম নেই |
+| `package.json` / `package-lock.json` | শুধু ESLint dependency-র জন্য, অ্যাপের নিজের কোনো build step নেই |
+| `.github/workflows/verify.yml` | প্রতি push-এর পর GitHub-এর সার্ভারে স্বাধীনভাবে verify.py আবার চালায় |
 | `CHANGELOG.md` | সাদামাটা ভাষায় লেখা পরিবর্তনের ইতিহাস — **প্রতি push-এর পর আপডেট করা বাধ্যতামূলক** |
 | `PROJECT_NOTES.md` | **এই ফাইল** — এখনকার আর্কিটেকচার/অবস্থার সংক্ষিপ্ত কনটেক্সট |
 | `HISTORY.md` | পুরনো bug ইতিহাস ও প্রথম আলোচনার বিস্তারিত প্রেক্ষাপট (রোজকার কাজে পড়ার দরকার নেই) |
