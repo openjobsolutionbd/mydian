@@ -186,6 +186,25 @@ function renderNode(node) {
   row.dataset.path = node.path;
   row.dataset.type = node.type; // "folder"/"file" — ড্র্যাগ-ড্রপে টার্গেট ফোল্ডার বের করতে ব্যবহার হয়
 
+  // sidebar-এর ভেতরেই একটা ফাইল/ফোল্ডার টেনে অন্য ফোল্ডারে সরানো
+  // (move) যায় — OS থেকে ফাইল টেনে আনার draggable এর সাথে গুলিয়ে না
+  // যায় সেজন্য আলাদা কাস্টম MIME টাইপ ("application/x-mydian-path")
+  // ব্যবহার করা হচ্ছে, যাতে drop হ্যান্ডলার বুঝতে পারে এটা internal
+  // move নাকি OS থেকে আসা আসল ফাইল।
+  row.draggable = true;
+  row.addEventListener("dragstart", (e) => {
+    // dragover চলাকালীন dataTransfer.getData() ব্রাউজার নিরাপত্তার
+    // কারণে পড়া যায় না (শুধু drop-এ পড়া যায়) — তাই হাইলাইট আপডেট
+    // করার সময় কাজে লাগানোর জন্য এই path আলাদাভাবেও মনে রাখা হচ্ছে
+    draggedNodePath = node.path;
+    e.dataTransfer.setData("application/x-mydian-path", node.path);
+    e.dataTransfer.effectAllowed = "move";
+  });
+  row.addEventListener("dragend", () => {
+    draggedNodePath = null;
+    clearDragHighlight();
+  });
+
   if (node.type === "folder") {
     const isOpen = expandedFolders.has(node.path);
     if (isOpen) row.classList.add("open");
@@ -959,14 +978,18 @@ function uploadAttachment(file) {
   });
 }
 
-// ---------- Sidebar drag & drop (OS ফাইল/ফোল্ডার সরাসরি sidebar-এ টেনে আনা) ----------
+// ---------- Sidebar drag & drop (OS ফাইল/ফোল্ডার আনা, এবং sidebar-এর
+// ভেতরেই ফাইল/ফোল্ডার টেনে অন্য ফোল্ডারে সরানো) ----------
 
 let dragHighlightEl = null;
+let draggedNodePath = null; // internal move-drag এর সোর্স path (dragover-এ getData() পড়া যায় না বলে এভাবে ট্র্যাক করা হয়)
 
 fileTreeEl.addEventListener("dragover", (e) => {
-  if (!e.dataTransfer.types.includes("Files")) return; // শুধু OS থেকে আসা ফাইল-ড্র্যাগেই সাড়া দেওয়া হচ্ছে
-  e.preventDefault(); // এটা না করলে ব্রাউজার ডিফল্ট আচরণ হিসেবে ফাইলটা নতুন ট্যাবে খুলে ফেলবে, drop ইভেন্টই আসবে না
-  e.dataTransfer.dropEffect = "copy";
+  const isInternal = e.dataTransfer.types.includes("application/x-mydian-path");
+  const isExternal = e.dataTransfer.types.includes("Files");
+  if (!isInternal && !isExternal) return; // অ্যাপের বাইরের কোনো অপ্রাসঙ্গিক drag (যেমন টেক্সট সিলেকশন) হলে কিছু করা হচ্ছে না
+  e.preventDefault(); // এটা না করলে ব্রাউজার ডিফল্ট আচরণ (ফাইল নতুন ট্যাবে খোলা) করে ফেলবে, drop ইভেন্টই আসবে না
+  e.dataTransfer.dropEffect = isInternal ? "move" : "copy";
   updateDragHighlight(e);
 });
 
@@ -978,10 +1001,21 @@ fileTreeEl.addEventListener("dragleave", (e) => {
 });
 
 fileTreeEl.addEventListener("drop", async (e) => {
-  if (!e.dataTransfer.types.includes("Files")) return;
+  const isInternal = e.dataTransfer.types.includes("application/x-mydian-path");
+  const isExternal = e.dataTransfer.types.includes("Files");
+  if (!isInternal && !isExternal) return;
   e.preventDefault();
   const targetFolder = dropTargetFolder(e);
   clearDragHighlight();
+
+  if (isInternal) {
+    const sourcePath = e.dataTransfer.getData("application/x-mydian-path") || draggedNodePath;
+    draggedNodePath = null;
+    const node = sourcePath && findNodeByPath(sourcePath);
+    if (node) await moveNode(node, targetFolder);
+    return;
+  }
+
   const dropped = await readDroppedEntries(e.dataTransfer);
   if (!dropped.length) return;
   for (const { file, relPath } of dropped) {
@@ -990,20 +1024,25 @@ fileTreeEl.addEventListener("drop", async (e) => {
   await loadFileTree();
 });
 
-// মাউস কোন row-এর উপর আছে সেটা দেখে সেই ফোল্ডারে ড্রপ হবে বলে হাইলাইট
-// করা হয় (ফাইলের উপর হলে তার প্যারেন্ট ফোল্ডার), নাহলে root-এ ড্রপের
-// জন্য পুরো sidebar হাইলাইট হয়
+// মাউস কোন row-এর উপর আছে সেটা দেখে সেই ফোল্ডারকে হাইলাইট করা হয়
+// (ফাইলের উপর হলে তার প্যারেন্ট ফোল্ডারের row-টাই হাইলাইট হয়, রুট হলে
+// পুরো sidebar)
 function updateDragHighlight(e) {
-  const row = e.target.closest && e.target.closest(".tree-row[data-path]");
-  const folderRow = row && row.dataset.type === "folder" ? row : null;
-  if (folderRow === dragHighlightEl) return;
-  clearDragHighlight();
-  if (folderRow) {
-    folderRow.classList.add("drag-over");
-    dragHighlightEl = folderRow;
+  const targetPath = dropTargetFolder(e);
+  let target;
+  if (targetPath === "") {
+    target = "root";
   } else {
+    target = fileTreeEl.querySelector(`.tree-row[data-type="folder"][data-path="${CSS.escape(targetPath)}"]`);
+  }
+  if (target === dragHighlightEl) return;
+  clearDragHighlight();
+  if (target === "root") {
     fileTreeEl.classList.add("drag-over-root");
     dragHighlightEl = "root";
+  } else if (target) {
+    target.classList.add("drag-over");
+    dragHighlightEl = target;
   }
 }
 
@@ -1023,6 +1062,72 @@ function dropTargetFolder(e) {
   if (row.dataset.type === "folder") return path;
   const idx = path.lastIndexOf("/");
   return idx === -1 ? "" : path.slice(0, idx);
+}
+
+// sidebar-এর ভেতরেই একটা ফাইল/ফোল্ডার অন্য ফোল্ডারে সরানো — GitHub
+// Contents API-তে সরাসরি "move" বলে কিছু নেই, তাই renameFile()-এর মতোই
+// দুই ধাপে করা হয় (নতুন পাথে কপি, তারপর পুরনোটা ডিলিট); ফোল্ডার হলে
+// তার ভেতরের প্রতিটা ফাইলের জন্য আলাদাভাবে এই একই প্রক্রিয়া চলে,
+// সাব-ফোল্ডার গঠন অক্ষত রেখে।
+async function moveNode(node, targetFolder) {
+  const parentPath = node.path.split("/").slice(0, -1).join("/");
+  if (parentPath === targetFolder || targetFolder === node.path) return; // ইতিমধ্যে সেখানেই আছে, বা নিজের উপরেই ড্রপ হয়েছে — নিঃশব্দে কিছু করার দরকার নেই
+
+  if (node.type === "folder" && (targetFolder === node.path || targetFolder.startsWith(node.path + "/"))) {
+    alert("Can't move a folder into itself or one of its own subfolders.");
+    return;
+  }
+
+  const baseName = node.path.split("/").pop();
+  const newBasePath = targetFolder ? `${targetFolder}/${baseName}` : baseName;
+  if (findNodeByPath(newBasePath)) {
+    alert(`"${baseName}" already exists in that folder.`);
+    return;
+  }
+
+  const filesToMove = node.type === "folder" ? collectAllFiles(node) : [node];
+  if (!filesToMove.length) return; // থিওরিটিক্যালি অসম্ভব (খালি ফোল্ডারেও .gitkeep থাকে), তবু নিরাপত্তার জন্য গার্ড
+
+  const wasOpenPath = currentFile ? currentFile.path : null;
+  if (wasOpenPath && filesToMove.some((f) => f.path === wasOpenPath)) cancelPendingSave();
+
+  const moved = []; // সফলভাবে সরানো ফাইলের { oldPath, newPath } হিসাব — আংশিক ব্যর্থতা হলে রিপোর্ট/currentFile আপডেটের জন্য দরকার
+  try {
+    for (const f of filesToMove) {
+      const relative = f.path.slice(node.path.length); // ফোল্ডার হলে "/sub/file.md", প্লেইন ফাইল হলে ""
+      const newPath = node.type === "folder" ? `${newBasePath}${relative}` : newBasePath;
+      const { base64 } = await api.fetchFileRaw(f.path);
+      const putResult = await api.putFile(newPath, base64, `Move ${f.path} → ${newPath}`);
+      await api.deleteFile(f.path, f.sha, `Move: remove old path ${f.path}`);
+      cache.deleteFile(f.path);
+      if (!isImage(newPath) && !isPdf(newPath)) {
+        try {
+          const content = api.decodeBase64Utf8(base64);
+          cache.setFile(newPath, { content, sha: putResult.content.sha });
+        } catch (e) {
+          // decode ব্যর্থ হলেও move নিজে সফল হয়েছে — cache miss হলে পরের
+          // ওপেনে স্বাভাবিকভাবেই network থেকে আনবে, কোনো ক্ষতি নেই
+        }
+      }
+      moved.push({ oldPath: f.path, newPath });
+    }
+  } catch (err) {
+    alert(
+      `Move did not fully complete: ${err.message}\n` +
+      (moved.length ? `${moved.length} of ${filesToMove.length} file(s) were already moved before the error — refreshing the list.` : "")
+    );
+  }
+
+  await loadFileTree();
+  if (wasOpenPath) {
+    const movedEntry = moved.find((m) => m.oldPath === wasOpenPath);
+    if (movedEntry) {
+      const newNode = findNodeByPath(movedEntry.newPath);
+      if (newNode) openFile(newNode);
+    } else if (!findNodeByPath(wasOpenPath)) {
+      closeEditor();
+    }
+  }
 }
 
 // dataTransfer থেকে { file, relPath } এন্ট্রির লিস্ট বের করে। Chrome/Edge/

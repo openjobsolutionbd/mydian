@@ -36,6 +36,7 @@ export default [
         btoa: "readonly",
         atob: "readonly",
         indexedDB: "readonly",
+        CSS: "readonly",
       },
     },
     rules: {
