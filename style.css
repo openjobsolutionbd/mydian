@@ -567,6 +567,17 @@ input {
   caret-color: var(--accent);
 }
 
+/* CodeMirror নিজের ব্লিঙ্কিং কার্সরটা caret-color দিয়ে না এঁকে আলাদা
+   .cm-cursor DOM এলিমেন্ট দিয়ে আঁকে (নিজস্ব বেস থিম থেকে), যেটার
+   ডিফল্ট রঙ হার্ডকোডেড কালো — ডার্ক থিমের ব্যাকগ্রাউন্ডে সেটা পুরোপুরি
+   অদৃশ্য হয়ে যাচ্ছিল। CM6-এর ইনজেক্ট করা বেস স্টাইলশিট থেকে জেতার জন্য
+   !important লাগছে (নাহলে CSS-এর সোর্স-অর্ডারে সেটাই পরে বসতে পারে)।
+*/
+.cm-cursor,
+.cm-dropCursor {
+  border-left-color: var(--accent) !important;
+}
+
 .cm-line { padding: 0 2px; }
 
 .cm-gutters { display: none !important; }
