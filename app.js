@@ -30,6 +30,7 @@ const sidebarOverlay = el("sidebar-overlay");
 const btnNewFile = el("btn-new-file");
 const btnNewFolder = el("btn-new-folder");
 const btnRefresh = el("btn-refresh");
+const btnThemeToggle = el("btn-theme-toggle");
 const btnDownload = el("btn-download");
 const btnDelete = el("btn-delete");
 const btnAttach = el("btn-attach");
@@ -1311,15 +1312,23 @@ function applyTheme(theme) {
   // মোডে চলে যাবে — এটা settings মোডাল বন্ধ থাকা অবস্থাতেও sync রাখা
   // দরকার, কারণ পরের বার খোলার সময় যেন সঠিক টেক্সট দেখায়।
   settingsThemeToggle.textContent = theme === "light" ? "☀️ Light mode" : "🌙 Dark mode";
+  // sidebar-এর icon-বাটনও একই স্টেট দেখায় (title + আইকন), যাতে settings
+  // মোডাল না খুলেও হোমপেজ থেকে এক ক্লিকে টগল করা যায়।
+  btnThemeToggle.title = theme === "light" ? "Switch to dark mode" : "Switch to light mode";
+  btnThemeToggle.setAttribute("aria-label", btnThemeToggle.title);
+  btnThemeToggle.textContent = theme === "light" ? "☀️" : "🌙";
 }
 
 applyTheme(getCurrentTheme());
 
-settingsThemeToggle.addEventListener("click", () => {
+function toggleTheme() {
   const next = getCurrentTheme() === "light" ? "dark" : "light";
   localStorage.setItem(THEME_KEY, next);
   applyTheme(next);
-});
+}
+
+settingsThemeToggle.addEventListener("click", toggleTheme);
+btnThemeToggle.addEventListener("click", toggleTheme);
 
 // ============================================================
 // Settings modal (vault info + logout)

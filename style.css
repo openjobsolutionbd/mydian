@@ -260,6 +260,15 @@ input {
   color: var(--text-primary);
 }
 
+/* #btn-theme-toggle-এ SVG-এর বদলে emoji টেক্সট (🌙/☀️) বসানো হয় JS থেকে,
+   বাকি .icon-btn গুলো SVG ব্যবহার করে (width/height=16 attribute দিয়ে
+   মাপ ঠিক থাকে) — emoji-র নিজের কোনো width/height attribute নেই, তাই
+   ফন্ট-সাইজ দিয়ে বাকি আইকনের সাথে ভিজ্যুয়ালি মেলানো হচ্ছে। */
+#btn-theme-toggle {
+  font-size: 15px;
+  line-height: 1;
+}
+
 .icon-btn.danger:hover {
   background: rgba(212, 116, 116, 0.14);
   color: var(--danger);
