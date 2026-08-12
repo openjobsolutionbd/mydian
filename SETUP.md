@@ -44,6 +44,21 @@ wrangler secret put SESSION_SECRET
 # যেকোনো লম্বা random string (যেমন: openssl rand -hex 32 দিয়ে বানাতে পারেন)
 ```
 
+**ঐচ্ছিক কিন্তু সুপারিশ করা হয় — PIN বারবার ভুল চেষ্টা (brute force) থেকে
+সুরক্ষা:**
+
+```bash
+wrangler kv namespace create RATE_LIMIT_KV
+```
+
+এই কমান্ডের আউটপুটে একটা `id` দেখাবে, যেমন:
+`id = "abc123..."`
+
+এই লাইনটা কপি করে `worker/wrangler.toml` ফাইলের নিচের দিকে
+`[[kv_namespaces]]` অংশের কমেন্ট (`#`) সরিয়ে বসিয়ে দিন। এই ধাপ স্কিপ
+করলেও অ্যাপ কাজ করবে, শুধু PIN বারবার ভুল চেষ্টা আটকানোর সুরক্ষাটা
+দুর্বল থাকবে।
+
 এবার deploy করুন:
 
 ```bash

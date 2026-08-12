@@ -65,6 +65,7 @@ export default [
         atob: "readonly",
         TextEncoder: "readonly",
         TextDecoder: "readonly",
+        setTimeout: "readonly",
       },
     },
     rules: {

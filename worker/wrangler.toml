@@ -8,3 +8,18 @@ compatibility_date = "2024-11-01"
 #   wrangler secret put GITHUB_TOKEN
 #   wrangler secret put APP_PIN
 #   wrangler secret put SESSION_SECRET
+
+# ঐচ্ছিক কিন্তু জোরালোভাবে সুপারিশ করা হয় — PIN বারবার ভুল চেষ্টা করা
+# (brute force) আটকানোর জন্য এই KV namespace-টা লাগে। না বাঁধলেও worker
+# ভাঙবে না (শুধু ছোট delay-ভিত্তিক দুর্বল সুরক্ষা কাজ করবে), কিন্তু
+# পূর্ণ সুরক্ষার জন্য (৫ বার ভুল হলে ১৫ মিনিট লকআউট) এটা লাগবে।
+#
+# এক-বারের সেটআপ (SETUP.md-এও লেখা আছে):
+#   ১. টার্মিনালে (worker/ ফোল্ডার থেকে): wrangler kv namespace create RATE_LIMIT_KV
+#   ২. যে id দেখাবে সেটা নিচের <YOUR_KV_ID> জায়গায় বসিয়ে এই লাইনগুলো
+#      uncomment করুন
+#   ৩. wrangler deploy
+#
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT_KV"
+# id = "<YOUR_KV_ID>"

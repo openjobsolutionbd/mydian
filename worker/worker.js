@@ -102,9 +102,49 @@ export default {
 
     // ---------- লগইন এন্ডপয়েন্ট (PIN যাচাই) ----------
     if (url.pathname === "/api/login" && request.method === "POST") {
+      // নিরাপত্তা: আগে PIN ভুল হলে সাথে সাথেই "Incorrect PIN" ফেরত
+      // দেওয়া হতো, কোনো বাধা ছাড়াই — মানে যে কেউ script দিয়ে হাজার হাজার
+      // PIN সেকেন্ডে সেকেন্ডে try করে ভেঙে ফেলতে পারত (PIN ছোট/সংখ্যার
+      // হলে এটা বিশেষভাবে ঝুঁকিপূর্ণ)। এখন দুই স্তরের সুরক্ষা:
+      //   ১) প্রতিটা ভুল চেষ্টায় সামান্য delay (RATE_LIMIT_KV বাঁধা না
+      //      থাকলেও এটা কাজ করে) — সেকেন্ডে হাজারো try করা অসম্ভব করে।
+      //   ২) KV থাকলে: একই IP থেকে ১৫ মিনিটে ৫ বারের বেশি ভুল হলে লকআউট,
+      //      সঠিক PIN দিলেও ততক্ষণ ঢুকতে দেওয়া হবে না।
+      // KV binding (RATE_LIMIT_KV) সেট করা না থাকলে শুধু ১ নং সুরক্ষা
+      // কাজ করবে, ক্র্যাশ করবে না — কিন্তু SETUP.md অনুযায়ী KV বেঁধে
+      // দিলে সম্পূর্ণ সুরক্ষা পাওয়া যাবে।
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimitKey = `login_fail:${ip}`;
+      const MAX_ATTEMPTS = 5;
+      const WINDOW_SECONDS = 15 * 60; // ১৫ মিনিট
+
+      if (env.RATE_LIMIT_KV) {
+        const current = parseInt((await env.RATE_LIMIT_KV.get(rateLimitKey)) || "0", 10);
+        if (current >= MAX_ATTEMPTS) {
+          return json(
+            { error: `Too many attempts. Try again in a few minutes.` },
+            429,
+            cors
+          );
+        }
+      }
+
       const body = await request.json().catch(() => ({}));
       if (body.pin !== env.APP_PIN) {
+        // ভুল PIN — ছোট delay (brute force ধীর করার জন্য, KV ছাড়াও কাজ করে)
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        if (env.RATE_LIMIT_KV) {
+          const current = parseInt((await env.RATE_LIMIT_KV.get(rateLimitKey)) || "0", 10);
+          await env.RATE_LIMIT_KV.put(rateLimitKey, String(current + 1), {
+            expirationTtl: WINDOW_SECONDS,
+          });
+        }
         return json({ error: "Incorrect PIN" }, 401, cors);
+      }
+
+      // PIN সঠিক — এই IP-এর জন্য ভুল-চেষ্টার হিসাব মুছে ফেলা হলো
+      if (env.RATE_LIMIT_KV) {
+        await env.RATE_LIMIT_KV.delete(rateLimitKey);
       }
       const token = await createSessionToken(env.SESSION_SECRET);
       return json({ token }, 200, cors);
@@ -124,15 +164,36 @@ export default {
     if (url.pathname.startsWith("/api/github/")) {
       const githubPath = url.pathname.replace("/api/github", "");
 
-      // নিরাপত্তা: GITHUB_TOKEN-এর যে repo-গুলোতে access আছে (mydian কোড
-      // repo + mydian-vault ডেটা repo), তার যেকোনো একটাতে এই proxy দিয়ে
-      // পড়া/লেখা সম্ভব ছিল — session token একবার পেলেই যথেষ্ট, ইউজারের
-      // নিজের vault-এর বাইরেও (এমনকি অ্যাপের নিজের কোড repo-তেও) request
-      // পাঠানো যেত, কারণ কোনো repo allowlist ছিল না। এখন শুধু
-      // ALLOWED_REPOS-এ থাকা owner/repo-র জন্যই request পাস করা হবে।
-      const repoMatch = githubPath.match(/^\/repos\/([^/]+)\/([^/]+)\//);
+      // নিরাপত্তা (স্তর ১ — কোন repo): GITHUB_TOKEN-এর যে repo-গুলোতে
+      // access আছে (mydian কোড repo + mydian-vault ডেটা repo), তার
+      // যেকোনো একটাতে এই proxy দিয়ে পড়া/লেখা সম্ভব ছিল — session token
+      // একবার পেলেই যথেষ্ট, ইউজারের নিজের vault-এর বাইরেও (এমনকি
+      // অ্যাপের নিজের কোড repo-তেও) request পাঠানো যেত, কারণ কোনো repo
+      // allowlist ছিল না। এখন শুধু ALLOWED_REPOS-এ থাকা owner/repo-র
+      // জন্যই request পাস করা হবে।
+      const repoMatch = githubPath.match(/^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/);
       if (!repoMatch || !isAllowedRepo(repoMatch[1], repoMatch[2], env)) {
         return json({ error: "Proxying to this repo is not allowed" }, 403, cors);
+      }
+
+      // নিরাপত্তা (স্তর ২ — কোন operation): repo সঠিক হলেই যথেষ্ট ছিল না —
+      // এতদিন `/repos/{owner}/{repo}/` দিয়ে শুরু হওয়া ANY GitHub API
+      // path (webhook বদলানো, collaborator যোগ করা, repo settings, এমনকি
+      // trailing slash দিলে repo delete করার endpoint পর্যন্ত) পাস হয়ে
+      // যেত — কারণ path-টা যাচাই না করেই সরাসরি full-access GITHUB_TOKEN
+      // দিয়ে GitHub-এ ফরওয়ার্ড করা হতো। অ্যাপ বাস্তবে শুধু দুই ধরনের
+      // request পাঠায় (js/api.js দ্রষ্টব্য): ফাইল ট্রি পড়া
+      // (`GET .../git/trees/{branch}`) আর ফাইল পড়া/লেখা/ডিলিট করা
+      // (`.../contents/{path}`)। এখন এই দুইটা ছাড়া আর কিছু পাস হবে না —
+      // session token কোনোভাবে বাইরে গেলেও, সেটা দিয়ে GitHub-এর অন্য কোনো
+      // ক্ষমতাশালী API (repo delete, webhook, ইত্যাদি) ছোঁয়া যাবে না।
+      const rest = repoMatch[3] || "";
+      const isTreesRead = request.method === "GET" && /^\/git\/trees\/[^/]+$/.test(rest);
+      const isContentsOp =
+        (request.method === "GET" || request.method === "PUT" || request.method === "DELETE") &&
+        /^\/contents\/.+$/.test(rest);
+      if (!isTreesRead && !isContentsOp) {
+        return json({ error: "This GitHub API operation is not allowed through this proxy" }, 403, cors);
       }
 
       const githubUrl = `${GITHUB_API}${githubPath}${url.search}`;
