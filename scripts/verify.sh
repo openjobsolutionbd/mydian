@@ -7,4 +7,10 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# PROJECT_NOTES.md-এর "সর্বশেষ অবস্থা" সেকশন বড় হতে থাকলে প্রতি সেশনে পড়ার
+# টোকেন-খরচ চুপচাপ বাড়তে থাকে — তাই verify-এর অংশ হিসেবেই স্বয়ংক্রিয়ভাবে
+# পুরনো এন্ট্রি HISTORY.md-এ সরিয়ে ছোট রাখা হয়, আলাদা করে মনে রাখতে হয় না।
+python3 scripts/archive-notes.py
+
 python3 scripts/verify.py
