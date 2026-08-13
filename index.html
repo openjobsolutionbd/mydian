@@ -49,6 +49,9 @@
       <div class="sidebar-header">
         <span class="sidebar-title">Mydian</span>
         <div class="sidebar-actions">
+          <button class="icon-btn" id="btn-quick-switcher" title="Search files (Ctrl+K)" aria-label="Search files">
+            <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
           <button class="icon-btn" id="btn-new-file" title="New file" aria-label="New file">
             <svg viewBox="0 0 24 24" width="16" height="16"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M14 2v6h6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 12v6M9 15h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
           </button>
@@ -132,6 +135,14 @@
         <button class="btn-ghost" id="modal-cancel">Cancel</button>
         <button class="btn-primary" id="modal-confirm">Create</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== Quick switcher (Ctrl/Cmd+K) — টাইপ করে ফাইল খোঁজা ও এক Enter-এ খোলা ===== -->
+  <div class="modal-overlay" id="quick-switcher-overlay" hidden>
+    <div class="modal quick-switcher">
+      <input type="text" id="quick-switcher-input" placeholder="ফাইলের নাম টাইপ করুন…" autocomplete="off" />
+      <div class="quick-switcher-results" id="quick-switcher-results"></div>
     </div>
   </div>
 

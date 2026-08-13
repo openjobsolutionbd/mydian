@@ -718,6 +718,74 @@ input {
 
 .btn-ghost:hover { color: var(--text-primary); }
 
+/* ============ Quick switcher (Ctrl/Cmd+K) ============ */
+/* সাধারণ .modal-এর চেয়ে চওড়া/লম্বা — নিচে ফলাফলের লিস্ট রাখতে হবে,
+   তাই .modal-এর max-width override করা হয়েছে (বাকি .modal input স্টাইল
+   অপরিবর্তিত রেখে ব্যবহার করা হচ্ছে — একই ইনপুট চেহারা পুরো অ্যাপে)। */
+.quick-switcher {
+  max-width: 480px;
+  padding: 12px;
+}
+
+.quick-switcher input {
+  margin-bottom: 4px;
+}
+
+.quick-switcher-results {
+  max-height: 340px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.qs-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.qs-item:hover {
+  background: var(--bg-hover);
+}
+
+/* কীবোর্ড ↑↓ দিয়ে এখন যে আইটেমটা সিলেক্টেড, সেটা mouse-hover-এর থেকে
+   আলাদাভাবে বোঝানোর জন্য accent রঙ ব্যবহার করা হয়েছে (শুধু hover
+   background হলে টাইপ করতে করতে কোনটা এখন সিলেক্টেড বোঝা যেত না)। */
+.qs-item.active {
+  background: var(--accent-soft);
+}
+
+.qs-item-name {
+  font-size: 13.5px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qs-item-path {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qs-empty {
+  padding: 16px 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* matched অংশ bold করে দেখানো হয় (fuzzy match কোথায় মিলল বোঝাতে) */
+.qs-match {
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
 .btn-primary {
   background: var(--accent);
   color: #1a1408;

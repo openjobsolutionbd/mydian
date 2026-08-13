@@ -23,7 +23,42 @@
 
 ## ০. সর্বশেষ অবস্থা
 
-**সর্বশেষ commit (২০২৬-০৮-১৩):** এডিটরের ব্লিঙ্কিং কার্সর ঠিকমতো
+**সর্বশেষ commit (২০২৬-০৮-১৩):** Quick switcher যোগ হয়েছে —
+Ctrl+K/Cmd+K চাপলে ফাইল খোঁজার একটা মোডাল খোলে (Obsidian-এর quick
+switcher থেকে অনুপ্রাণিত)।
+- `index.html`-এ নতুন `#quick-switcher-overlay` মোডাল (input +
+  `#quick-switcher-results` লিস্ট), settings মোডালের ঠিক আগে। sidebar
+  header-এ একটা 🔍 `#btn-quick-switcher` আইকন-বাটনও (New file-এর আগে)।
+- `app.js`-এ নতুন সেকশন "Quick switcher" (SW registration-এর ঠিক
+  আগে):
+  - `flattenTreeFiles(treeData)` — nested tree থেকে recursively সব
+    ফাইল (folder বাদ) বের করে flat array বানায়; `tree.js`-এর
+    `sortedEntries()` দিয়ে হাঁটে।
+  - `fuzzyMatch(query, target)` — সহজ subsequence-ভিত্তিক fuzzy
+    match (query-র অক্ষরগুলো টার্গেটে একই ক্রমে থাকলেই মিল ধরে,
+    পাশাপাশি থাকা লাগে না)। matched index-গুলো রিটার্ন করে, যেটা
+    `highlightMatch()` bold করে দেখাতে ব্যবহার করে।
+  - রেজাল্ট sort হয় matched span-এর (প্রথম matched index থেকে শেষ
+    matched index-এর দূরত্ব) upর ভিত্তিতে — ছোট span মানে "টাইট"
+    মিল, সেটা উপরে থাকে। সর্বোচ্চ ৩০টা রেজাল্ট দেখানো হয়, খালি
+    query-তে প্রথম ২০টা ফাইল।
+  - কীবোর্ড: ↑↓ দিয়ে navigate (`qsActiveIndex`), Enter দিয়ে
+    `openFile()` কল করে খোলা, Escape দিয়ে বন্ধ। মাউস ক্লিকও কাজ করে।
+  - গ্লোবাল শর্টকাট Ctrl+K/Cmd+K — `openQuickSwitcher()`/
+    `closeQuickSwitcher()` টগল করে; `preventDefault()` করা হয়েছে
+    ব্রাউজারের নিজস্ব address-bar-ফোকাস override করতে।
+  - **গুরুত্বপূর্ণ:** নতুন `escapeHtml()` ফাংশন যোগ করতে গিয়ে প্রথমবার
+    ডুপ্লিকেট ডিক্লেয়ার হয়ে গিয়েছিল (ফাইলের নিচের দিকে "Helpers"
+    সেকশনে আগে থেকেই একই নামে ছিল) — ESLint সাথে সাথে ধরেছে, পরে
+    ডুপ্লিকেটটা সরিয়ে বিদ্যমান হেল্পারটাই reuse করা হয়েছে।
+- `style.css`-এ `.quick-switcher`/`.qs-item`/`.qs-match` ইত্যাদি নতুন
+  ক্লাস — বিদ্যমান `.modal`-এর উপর ভিত্তি করেই (max-width override
+  করে একটু চওড়া করা হয়েছে ফলাফল লিস্টের জন্য জায়গা রাখতে)।
+- **পরিধি সীমিত রাখা হয়েছে:** শুধু quick switcher/সার্চ — wikilink,
+  backlink, ট্যাগ, গ্রাফ ভিউ কিছুই যোগ করা হয়নি (ইউজার স্পষ্টভাবে
+  শুধু এই একটা ফিচার চেয়েছেন)।
+
+**তার আগের commit (২০২৬-০৮-১৩):** এডিটরের ব্লিঙ্কিং কার্সর ঠিকমতো
 চোখে পড়ছিল না — এই সমস্যা ঠিক করা হয়েছে।
 - `.cm-cursor`/`.cm-dropCursor`-এ আগে থেকে `border-left-color: var(--accent)`
   সেট করা ছিল (আগের একটা dark-mode-caret ফিক্সে), কিন্তু

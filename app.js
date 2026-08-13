@@ -43,6 +43,11 @@ const modalHint = el("modal-hint");
 const modalConfirm = el("modal-confirm");
 const modalCancel = el("modal-cancel");
 
+const btnQuickSwitcher = el("btn-quick-switcher");
+const quickSwitcherOverlay = el("quick-switcher-overlay");
+const quickSwitcherInput = el("quick-switcher-input");
+const quickSwitcherResults = el("quick-switcher-results");
+
 const btnSettings = el("btn-settings");
 const settingsModalOverlay = el("settings-modal-overlay");
 const settingsVaultInfo = el("settings-vault-info");
@@ -1527,6 +1532,183 @@ function trashSvg() {
 function editSvg() {
   return `<svg viewBox="0 0 24 24" width="13" height="13"><path d="M12 20h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
+
+// ============================================================
+// Quick switcher (Ctrl/Cmd+K) — Obsidian-এর quick switcher-এর মতো:
+// টাইপ করে ফাইল খোঁজা, ↑↓ দিয়ে নেভিগেট, Enter দিয়ে খোলা
+// ============================================================
+
+let qsResults = [];
+let qsActiveIndex = -1;
+
+// treeData (nested tree) থেকে recursively সব ফাইল (folder বাদ) বের করে
+// একটা flat array বানায় — quick switcher এই লিস্টের উপরেই filter করে।
+function flattenTreeFiles(node) {
+  const out = [];
+  const walk = (n) => {
+    for (const child of sortedEntries(n)) {
+      if (child.type === "folder") {
+        walk(child);
+      } else {
+        out.push(child);
+      }
+    }
+  };
+  if (node) walk(node);
+  return out;
+}
+
+// খুব সাধারণ fuzzy match: query-র প্রতিটা অক্ষর টার্গেটে (path, ছোট হাতের)
+// একই ক্রমে থাকলেই ম্যাচ ধরা হয় — Obsidian-এর quick switcher-এর মতোই
+// আক্ষরিক ক্রমে-না-থাকা অক্ষর মেলানোর দরকার নেই, শুধু ক্রম ঠিক থাকলেই হয়।
+// রিটার্ন করে matched অক্ষরের index-গুলো (bold করে দেখানোর জন্য) অথবা
+// null যদি না মেলে।
+function fuzzyMatch(query, target) {
+  if (!query) return [];
+  const q = query.toLowerCase();
+  const t = target.toLowerCase();
+  const matchedIndices = [];
+  let qi = 0;
+  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+    if (t[ti] === q[qi]) {
+      matchedIndices.push(ti);
+      qi++;
+    }
+  }
+  return qi === q.length ? matchedIndices : null;
+}
+
+// matched অক্ষরগুলো <span class="qs-match"> দিয়ে wrap করে HTML বানায়
+function highlightMatch(text, matchedIndices) {
+  if (!matchedIndices || matchedIndices.length === 0) return escapeHtml(text);
+  let html = "";
+  let lastIdx = 0;
+  for (const idx of matchedIndices) {
+    html += escapeHtml(text.slice(lastIdx, idx));
+    html += `<span class="qs-match">${escapeHtml(text[idx])}</span>`;
+    lastIdx = idx + 1;
+  }
+  html += escapeHtml(text.slice(lastIdx));
+  return html;
+}
+
+function openQuickSwitcher() {
+  if (!treeData) return; // ফাইল ট্রি এখনো লোড হয়নি
+  quickSwitcherOverlay.hidden = false;
+  quickSwitcherInput.value = "";
+  quickSwitcherInput.focus();
+  renderQuickSwitcherResults("");
+}
+
+function closeQuickSwitcher() {
+  quickSwitcherOverlay.hidden = true;
+  qsResults = [];
+  qsActiveIndex = -1;
+}
+
+function renderQuickSwitcherResults(query) {
+  const allFiles = flattenTreeFiles(treeData);
+  const q = query.trim();
+
+  let matched;
+  if (!q) {
+    // কোনো query না থাকলে সাম্প্রতিক sort ছাড়াই প্রথম ২০টা ফাইল দেখানো হয়,
+    // যাতে খালি অবস্থাতেও কিছু একটা দেখা যায়, পুরোপুরি ফাঁকা না লাগে
+    matched = allFiles.slice(0, 20).map((f) => ({ file: f, indices: null }));
+  } else {
+    matched = allFiles
+      .map((f) => ({ file: f, indices: fuzzyMatch(q, f.path) }))
+      .filter((m) => m.indices !== null)
+      // যত কম matched span (মানে যত "টাইট" মিল), তত উপরে — সাধারণ
+      // fuzzy-finder heuristic, Obsidian-এও কাছাকাছি সাজানো হয়
+      .sort((a, b) => {
+        const spanA = a.indices[a.indices.length - 1] - a.indices[0];
+        const spanB = b.indices[b.indices.length - 1] - b.indices[0];
+        return spanA - spanB;
+      })
+      .slice(0, 30);
+  }
+
+  qsResults = matched;
+  qsActiveIndex = matched.length > 0 ? 0 : -1;
+  renderQuickSwitcherList();
+}
+
+function renderQuickSwitcherList() {
+  if (qsResults.length === 0) {
+    quickSwitcherResults.innerHTML = `<div class="qs-empty">কোনো ফাইল পাওয়া যায়নি</div>`;
+    return;
+  }
+  quickSwitcherResults.innerHTML = qsResults
+    .map((m, i) => {
+      const name = fileNameWithoutExt(m.file.name);
+      return `<div class="qs-item${i === qsActiveIndex ? " active" : ""}" data-index="${i}">
+        <span class="qs-item-name">${escapeHtml(name)}</span>
+        <span class="qs-item-path">${highlightMatch(m.file.path, m.indices)}</span>
+      </div>`;
+    })
+    .join("");
+}
+
+function selectQuickSwitcherResult(index) {
+  const match = qsResults[index];
+  if (!match) return;
+  closeQuickSwitcher();
+  openFile(match.file);
+}
+
+quickSwitcherInput.addEventListener("input", () => {
+  renderQuickSwitcherResults(quickSwitcherInput.value);
+});
+
+quickSwitcherResults.addEventListener("click", (e) => {
+  const item = e.target.closest(".qs-item");
+  if (!item) return;
+  selectQuickSwitcherResult(Number(item.dataset.index));
+});
+
+quickSwitcherInput.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (qsResults.length === 0) return;
+    qsActiveIndex = (qsActiveIndex + 1) % qsResults.length;
+    renderQuickSwitcherList();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (qsResults.length === 0) return;
+    qsActiveIndex = (qsActiveIndex - 1 + qsResults.length) % qsResults.length;
+    renderQuickSwitcherList();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    selectQuickSwitcherResult(qsActiveIndex);
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closeQuickSwitcher();
+  }
+});
+
+quickSwitcherOverlay.addEventListener("click", (e) => {
+  if (e.target === quickSwitcherOverlay) closeQuickSwitcher();
+});
+
+btnQuickSwitcher.addEventListener("click", openQuickSwitcher);
+
+// গ্লোবাল শর্টকাট: Ctrl+K (Windows/Linux) বা Cmd+K (Mac) — Obsidian-এর
+// quick switcher শর্টকাট থেকে অনুপ্রাণিত (Obsidian ডিফল্ট Ctrl/Cmd+O
+// ব্যবহার করে, কিন্তু Ctrl+K এখন অনেক অ্যাপে (VS Code, Linear, Notion)
+// "কমান্ড/সার্চ" হিসেবে বহুল পরিচিত, তাই সেটাই বেছে নেওয়া হলো)।
+// ব্রাউজারের ডিফল্ট Ctrl+K (address bar-এ সার্চ ফোকাস) override করতে
+// preventDefault লাগবে।
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    if (quickSwitcherOverlay.hidden) {
+      openQuickSwitcher();
+    } else {
+      closeQuickSwitcher();
+    }
+  }
+});
 
 // ============================================================
 // PWA: service worker registration + auto-update
