@@ -23,7 +23,20 @@
 
 ## ০. সর্বশেষ অবস্থা
 
-**সর্বশেষ commit (২০২৬-০৮-১২):** থিম টগল বাটন Settings মোডালের বাইরে
+**সর্বশেষ commit (২০২৬-০৮-১২):** মাউস দিয়ে টেক্সট সিলেক্ট করলে
+background রঙ যথেষ্ট স্পষ্ট না হওয়ার সমস্যা ঠিক করা হয়েছে।
+- আগে `::selection` আর CodeMirror-এর `.cm-selectionBackground` দুটোই
+  `--accent-soft` ব্যবহার করত, যেটার opacity মাত্র 0.12–0.14 (মূলত অন্য
+  জায়গায় হালকা হাইলাইট হিসেবে ব্যবহারের জন্য বানানো), সিলেকশনের জন্য
+  খুবই ফিকে।
+- নতুন dedicated `--selection-bg` variable যোগ হয়েছে দুই থিমেই আলাদা
+  মান দিয়ে (dark: opacity 0.38, light: opacity 0.30 — light-এ base
+  accent রঙ নিজেই গাঢ় বলে কম opacity লাগে)। `::selection` আর
+  `.cm-selectionBackground` দুটোই এখন এই variable ব্যবহার করে।
+- `::selection`-এ `color: var(--text-primary)`-ও explicit বসানো হয়েছে
+  (আগে সেট করা ছিল না, ব্রাউজার ডিফল্টের উপর নির্ভর করছিল)।
+
+**তার আগের commit (২০২৬-০৮-১২):** থিম টগল বাটন Settings মোডালের বাইরে
 sidebar-এর উপরের দিকে (New file/New folder/Refresh-এর পাশে) নিয়ে আসা
 হয়েছে, যাতে হোমপেজ থেকেই এক ক্লিকে dark/light বদলানো যায়।
 - `index.html`-এ `#btn-theme-toggle` নামে নতুন `.icon-btn` — sidebar-header-এর

@@ -24,6 +24,14 @@
   --danger: #d47474;
   --success: #7fae7f;
 
+  /* মাউস দিয়ে টেক্সট সিলেক্ট করলে এই রঙ ব্যবহার হয় (::selection আর
+     CodeMirror-এর .cm-selectionBackground দুই জায়গাতেই)। আগে
+     --accent-soft (opacity মাত্র 0.14) ব্যবহার হতো, যেটা এত ফিকে ছিল
+     যে সিলেক্ট করা লেখা প্রায় চোখেই পড়ত না। এখন আলাদা, বেশি opacity-র
+     variable — যথেষ্ট কনট্রাস্ট থাকে কিন্তু টেক্সট এখনও পড়া যায় (কারণ
+     টেক্সটের নিজের রঙ বদলানো হয় না, শুধু background)। */
+  --selection-bg: rgba(212, 165, 116, 0.38);
+
   --font-ui: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
@@ -55,6 +63,12 @@
 
   --danger: #c0392b;
   --success: #4b8b4b;
+
+  /* light থিমে --accent নিজেই গাঢ় (dark mode-এর চেয়ে), তাই সরাসরি
+     সেটার rgba না নিয়ে একটু কম opacity — নাহলে সাদা background-এর
+     উপর টেক্সট অনেকটা ঢাকা পড়ে যেত। তারপরও dark থিমের মতোই যথেষ্ট
+     স্পষ্ট দেখা যায়। */
+  --selection-bg: rgba(184, 118, 63, 0.30);
 }
 
 * { box-sizing: border-box; }
@@ -108,7 +122,8 @@ input {
 }
 
 ::selection {
-  background: var(--accent-soft);
+  background: var(--selection-bg);
+  color: var(--text-primary);
 }
 
 /* ============ Login screen ============ */
@@ -592,7 +607,7 @@ input {
 .cm-gutters { display: none !important; }
 
 .cm-selectionBackground {
-  background: var(--accent-soft) !important;
+  background: var(--selection-bg) !important;
 }
 
 /* markdown live-preview token styling */
