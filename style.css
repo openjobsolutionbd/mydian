@@ -596,10 +596,13 @@ input {
    ডিফল্ট রঙ হার্ডকোডেড কালো — ডার্ক থিমের ব্যাকগ্রাউন্ডে সেটা পুরোপুরি
    অদৃশ্য হয়ে যাচ্ছিল। CM6-এর ইনজেক্ট করা বেস স্টাইলশিট থেকে জেতার জন্য
    !important লাগছে (নাহলে CSS-এর সোর্স-অর্ডারে সেটাই পরে বসতে পারে)।
-*/
+   এছাড়া CodeMirror-এর ডিফল্ট border-left-width মাত্র 1px, যেটা এত
+   চিকন যে --accent-এর মতো নরম (soft) রঙেও অনেক সময় ঠিকমতো চোখে পড়ে
+   না — তাই width 2px করে দেওয়া হয়েছে, স্পষ্ট দেখানোর জন্য। */
 .cm-cursor,
 .cm-dropCursor {
   border-left-color: var(--accent) !important;
+  border-left-width: 2px !important;
 }
 
 .cm-line { padding: 0 2px; }
