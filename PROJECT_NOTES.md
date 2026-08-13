@@ -43,40 +43,42 @@ CHANGELOG/PROJECT_NOTES-এ ডুপ্লিকেট বিস্তারি
 - `scripts/verify.sh`-এ এটা যোগ করা হয়েছে মূল `verify.py` চেকের ঠিক
   আগে — তাই প্রতিবার push-এর আগে এমনিতেই চলে, আলাদা কোনো ধাপ লাগে না।
 
-**তার আগের commit (২০২৬-০৮-১৩):** Quick switcher যোগ হয়েছে —
-Ctrl+K/Cmd+K চাপলে ফাইল খোঁজার একটা মোডাল খোলে (Obsidian-এর quick
-switcher থেকে অনুপ্রাণিত)।
-- `index.html`-এ নতুন `#quick-switcher-overlay` মোডাল (input +
-  `#quick-switcher-results` লিস্ট), settings মোডালের ঠিক আগে। sidebar
-  header-এ একটা 🔍 `#btn-quick-switcher` আইকন-বাটনও (New file-এর আগে)।
-- `app.js`-এ নতুন সেকশন "Quick switcher" (SW registration-এর ঠিক
-  আগে):
-  - `flattenTreeFiles(treeData)` — nested tree থেকে recursively সব
-    ফাইল (folder বাদ) বের করে flat array বানায়; `tree.js`-এর
-    `sortedEntries()` দিয়ে হাঁটে।
-  - `fuzzyMatch(query, target)` — সহজ subsequence-ভিত্তিক fuzzy
-    match (query-র অক্ষরগুলো টার্গেটে একই ক্রমে থাকলেই মিল ধরে,
-    পাশাপাশি থাকা লাগে না)। matched index-গুলো রিটার্ন করে, যেটা
-    `highlightMatch()` bold করে দেখাতে ব্যবহার করে।
-  - রেজাল্ট sort হয় matched span-এর (প্রথম matched index থেকে শেষ
-    matched index-এর দূরত্ব) upর ভিত্তিতে — ছোট span মানে "টাইট"
-    মিল, সেটা উপরে থাকে। সর্বোচ্চ ৩০টা রেজাল্ট দেখানো হয়, খালি
-    query-তে প্রথম ২০টা ফাইল।
-  - কীবোর্ড: ↑↓ দিয়ে navigate (`qsActiveIndex`), Enter দিয়ে
-    `openFile()` কল করে খোলা, Escape দিয়ে বন্ধ। মাউস ক্লিকও কাজ করে।
-  - গ্লোবাল শর্টকাট Ctrl+K/Cmd+K — `openQuickSwitcher()`/
-    `closeQuickSwitcher()` টগল করে; `preventDefault()` করা হয়েছে
-    ব্রাউজারের নিজস্ব address-bar-ফোকাস override করতে।
-  - **গুরুত্বপূর্ণ:** নতুন `escapeHtml()` ফাংশন যোগ করতে গিয়ে প্রথমবার
-    ডুপ্লিকেট ডিক্লেয়ার হয়ে গিয়েছিল (ফাইলের নিচের দিকে "Helpers"
-    সেকশনে আগে থেকেই একই নামে ছিল) — ESLint সাথে সাথে ধরেছে, পরে
-    ডুপ্লিকেটটা সরিয়ে বিদ্যমান হেল্পারটাই reuse করা হয়েছে।
-- `style.css`-এ `.quick-switcher`/`.qs-item`/`.qs-match` ইত্যাদি নতুন
-  ক্লাস — বিদ্যমান `.modal`-এর উপর ভিত্তি করেই (max-width override
-  করে একটু চওড়া করা হয়েছে ফলাফল লিস্টের জন্য জায়গা রাখতে)।
-- **পরিধি সীমিত রাখা হয়েছে:** শুধু quick switcher/সার্চ — wikilink,
-  backlink, ট্যাগ, গ্রাফ ভিউ কিছুই যোগ করা হয়নি (ইউজার স্পষ্টভাবে
-  শুধু এই একটা ফিচার চেয়েছেন)।
+**তার আগের commit (২০২৬-০৮-১২):** বাকি ৪টা "যৌক্তিক বাগ"-ও ঠিক করা
+হয়েছে — এখন মোট ৬টার সবগুলোই ঠিক।
+
+1. **অফলাইন এডিট cache-corruption (race condition):** `openTextFile()`-এ
+   pending outbox entry থাকলে আগে isDirty=true সেট করে editor-কে
+   protect করা হতো, কিন্তু তারপরও নিঃশর্তে `fetchFile()` + `cache.setFile()`
+   চলত — persistent cache-এ পুরনো (এডিটের আগের) কন্টেন্ট বসে যেত। ট্যাব
+   বন্ধ করে sync সফল হওয়ার আগে আবার ফাইল খুললে ইউজারের এডিট "হারিয়ে
+   গেছে" মনে হতো (আসলে outbox-এ নিরাপদ ছিল, শুধু ভুল কন্টেন্ট দেখাত)।
+   এখন pending outbox থাকলে fresh fetch সম্পূর্ণ স্কিপ হয়, সাথে
+   defensive fallback (files-cache মিসিং হলেও outbox থেকে সরাসরি দেখায়)।
+2. **Rename/move-এ pending edit হারানো:** `renameFile()` আর
+   `moveNode()` (নতুন drag-move ফিচার, একই বাগ ছিল) দুটোই GitHub থেকে
+   fresh fetch করে কপি বানাত — pending outbox edit থাকলে সেটা উপেক্ষা
+   করে পুরনো ভার্সন কপি হতো, নতুন নাম/জায়গায় এডিট হারিয়ে যেত, আর
+   outbox entry পুরনো (মুছে ফেলা) path-এ অনাথ হয়ে যেত। এখন দুটোতেই
+   pending outbox থাকলে সেটার content ব্যবহার হয়।
+3. **নতুন ফাইলে duplicate-check না থাকা:** `renameFile()`-এ আগে থেকেই
+   ছিল, কিন্তু `createFile()`/`createFolder()`-এ ছিল না — একই নামে
+   তৈরি করলে GitHub-এর raw টেকনিক্যাল এরর দেখাত। এখন সামঞ্জস্যপূর্ণ
+   বার্তা দেখায়। Drag-drop bulk import-এ প্রতি-ফাইলে আলাদা alert()-এর
+   বদলে ব্যাচ শেষে একটা সারাংশ (skipped/failed তালিকা)। Attachment
+   upload-এ (পেস্ট করা স্ক্রিনশট প্রায়ই একই নামে আসে বলে) ব্লক না করে
+   `uniquifyPath()` দিয়ে স্বয়ংক্রিয়ভাবে `-1`, `-2` যোগ করে আলাদা নাম।
+4. **Delete-confirmation-এ ভুল "Wrong PIN":** `js/api.js`-এর `login()`
+   আগে network failure (অফলাইন) আর server-এর "ভুল PIN" রেসপন্স দুটোকেই
+   একই Error হিসেবে throw করত — `submitDeleteConfirm()` তখন সবসময়
+   hardcoded "Wrong PIN — nothing was deleted." দেখাত, নেট সমস্যা হলেও।
+   এখন `login()` network failure-কে আলাদা বার্তা দিয়ে throw করে, আর
+   delete-confirm সেই আসল `err.message`-ই দেখায় (মূল login screen যেভাবে
+   করে)। এই ফিক্স মূল login screen-কেও ফ্রি-তে ভালো করে দিয়েছে (আগে
+   network error হলে raw "Failed to fetch" দেখাত)।
+
+প্রতিটা fix `scripts/verify.sh`-এর সব চেক পাস করেছে। `uniquifyPath()` আর
+`moveNode()`-এর pending-outbox লজিক আলাদাভাবে টেস্ট করে (মক ডেটা দিয়ে)
+যাচাই করা হয়েছে।
 
 *এই সেকশনে সবসময় সর্বশেষ ৩টা commit-এন্ট্রি রাখা হয় — তার বেশি জমলেই
 সবচেয়ে পুরনোটা(গুলো) `HISTORY.md`-এর "পুরনো সর্বশেষ অবস্থা" সেকশনের

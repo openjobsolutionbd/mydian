@@ -49,13 +49,26 @@ async function request(path, options = {}) {
 }
 
 export async function login(pin) {
-  const res = await fetch(`${WORKER_URL}/api/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pin }),
-  });
+  let res;
+  try {
+    res = await fetch(`${WORKER_URL}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+  } catch (networkErr) {
+    // fetch() নিজেই throw করে তখনই যখন request-টা সার্ভার পর্যন্ত
+    // পৌঁছায়ইনি (অফলাইন/নেট সমস্যা) — এটাকে ভুল PIN-এর সাথে গুলিয়ে
+    // ফেলা যাবে না, কারণ এখানে সার্ভার PIN যাচাই করারই সুযোগ পায়নি।
+    // আগে দুটোই একই "Wrong PIN" বার্তা হিসেবে দেখানো হতো (দেখুন
+    // submitDeleteConfirm-এর পুরনো কোড, app.js), যেটা অফলাইনে থাকা
+    // ইউজারকে বিভ্রান্ত করত।
+    throw new Error("নেট সংযোগ পাওয়া যায়নি — সংযোগ ঠিক করে আবার চেষ্টা করুন", { cause: networkErr });
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
+    // 401 (ভুল PIN) আর 429 (বারবার ভুল চেষ্টা — নতুন rate-limit) দুটোই
+    // এখানে সার্ভারের আসল বার্তা নিয়ে আসে, আলাদা করে দেখানো হয় caller-এ।
     throw new Error(err.error || "Login failed");
   }
   const data = await res.json();

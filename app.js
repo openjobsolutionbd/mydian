@@ -396,15 +396,38 @@ async function openTextFile(node, type, preloaded) {
 
     // আগে অফলাইনে করা এডিট এখনো GitHub-এ সিঙ্ক হয়নি এমন কিছু থাকলে
     // (outbox-এ পেন্ডিং) — সেটাই এই মুহূর্তে ফাইলের প্রকৃত/সর্বশেষ অবস্থা।
-    // isDirty true সেট করে রাখা হচ্ছে যাতে নিচের নেটওয়ার্ক fetch এই
-    // অসিঙ্ক-করা এডিটকে ভুলবশত পুরনো ভার্সন দিয়ে ওভাররাইট করে না ফেলে।
     const pendingOutbox = await cache.getOutboxEntry(node.path);
     if (pendingOutbox) {
+      // এইখানে আগে একটা bug ছিল: isDirty=true সেট করে এডিটর-কন্টেন্ট
+      // protect করা হতো ঠিকই, কিন্তু নিচের fresh fetch + cache.setFile()
+      // তারপরও নিঃশর্তে চলত — ফলে persistent cache-এ পুরনো (এডিটের
+      // আগের) কন্টেন্ট বসে যেত। এডিটর তখনকার মতো ঠিক দেখাত (কারণ
+      // isDirty প্রোটেক্ট করছিল), কিন্তু ট্যাব বন্ধ করে পরে আবার এই
+      // ফাইল খুললে (sync ততক্ষণে সফল না হলে) cache থেকে সেই পুরনো/ভুল
+      // কন্টেন্টই দেখাত — ইউজারের এডিট আসলে outbox-এ নিরাপদ থাকলেও
+      // দেখে মনে হতো হারিয়ে গেছে। এখন pending edit থাকলে fresh fetch
+      // সম্পূর্ণ স্কিপ করা হচ্ছে — network থেকে আনা পুরনো ভার্সন দিয়ে
+      // ওভাররাইট করার কোনো কারণই নেই যখন সঠিক/সর্বশেষ কন্টেন্ট এমনিতেই
+      // হাতে আছে।
+      if (!shownFromCache) {
+        // এটা সাধারণত ঘটার কথা না (flushSave() সবসময় "files" cache আর
+        // outbox একসাথে লেখে), কিন্তু defensive: files-cache মিসিং হলেও
+        // outbox-এর content সরাসরি দেখানো হচ্ছে, যাতে ভুলবশত খালি এডিটর
+        // বা পুরনো fetch করা কন্টেন্ট না দেখায়।
+        currentFile = { path: node.path, sha: pendingOutbox.baseSha, type };
+        editorView = createEditor({
+          parent: cmHost,
+          doc: pendingOutbox.content,
+          onChange: (c) => saveCurrentFile(c),
+        });
+        highlightActiveRow(node.path);
+      }
       isDirty = true;
       if (currentFile && currentFile.path === node.path) {
         setSaveIndicator("offline", "This offline edit hasn't synced yet");
       }
       flushOutbox();
+      return;
     }
 
     const fresh = await api.fetchFile(node.path);
@@ -702,6 +725,15 @@ window.addEventListener("offline", () => {
 // ============================================================
 
 async function createFile(path, initialContent = "", openAfterCreate = true) {
+  // renameFile()-এ আগে থেকেই একই নামের ফাইল আছে কিনা চেক করা হতো
+  // (সুন্দর বার্তা দিয়ে), কিন্তু নতুন ফাইল তৈরির এই পথে সেই চেকটা ছিল
+  // না — একই নামের ফাইল থাকলে GitHub-এর raw টেকনিক্যাল এরর (sha না
+  // দেওয়ার কারণে) দেখাত, বোধগম্য কিছু না। এখন সামঞ্জস্যপূর্ণভাবে একই
+  // চেক এখানেও বসানো হলো।
+  if (findNodeByPath(path)) {
+    alert("A file with this name already exists.");
+    return;
+  }
   try {
     const base64 = api.encodeBase64Utf8(initialContent);
     const result = await api.putFile(path, base64, `Create ${path}`);
@@ -724,6 +756,14 @@ async function createFile(path, initialContent = "", openAfterCreate = true) {
 }
 
 async function createFolder(path) {
+  // ফোল্ডার আগে থেকেই থাকলে (এই অ্যাপ দিয়ে খালি অবস্থায় তৈরি করা হলে
+  // .gitkeep পাওয়া যাবে) সুন্দর বার্তা দেখানো হচ্ছে — নাহলে নিচের
+  // createFile()-এর ভেতরের চেকই এটা ধরত, কিন্তু বার্তাটা "ফাইল" বলত,
+  // "ফোল্ডার" বলত না, যেটা বিভ্রান্তিকর হতো।
+  if (findNodeByPath(`${path}/.gitkeep`)) {
+    alert("A folder with this name already exists.");
+    return;
+  }
   // GitHub-এ খালি ফোল্ডার রাখা যায় না — একটা .gitkeep ফাইল দিয়ে ফোল্ডার তৈরি করি।
   // openAfterCreate=false — নাহলে ইউজার "নতুন ফোল্ডার" চাপলে অদ্ভুতভাবে
   // একটা .gitkeep ফাইল এডিটরে খুলে যেত।
@@ -738,6 +778,26 @@ function findNodeByPath(path) {
     node = node.children[part];
   }
   return node;
+}
+
+function uniquifyPath(path) {
+  // একই নামের ফাইল আগে থেকে থাকলে "-1", "-2" ... জুড়ে একটা খালি নাম
+  // খুঁজে বের করে — attachment-এর ক্ষেত্রে (যেমন বারবার পেস্ট করা
+  // স্ক্রিনশট, প্রায়ই একই জেনেরিক নামে আসে) ব্লক করে বিরক্ত করার বদলে
+  // স্বয়ংক্রিয়ভাবে আলাদা নাম দেওয়াই বেশি সহায়ক।
+  if (!findNodeByPath(path)) return path;
+  const slashIndex = path.lastIndexOf("/");
+  const dotIndex = path.lastIndexOf(".");
+  const hasExt = dotIndex > slashIndex;
+  const base = hasExt ? path.slice(0, dotIndex) : path;
+  const ext = hasExt ? path.slice(dotIndex) : "";
+  let i = 1;
+  let candidate;
+  do {
+    candidate = `${base}-${i}${ext}`;
+    i++;
+  } while (findNodeByPath(candidate));
+  return candidate;
 }
 
 async function deleteFileNode(node) {
@@ -774,9 +834,19 @@ async function renameFile(node, newName) {
   const wasOpen = currentFile && currentFile.path === node.path;
   if (wasOpen) cancelPendingSave();
 
+  // অফলাইনে করা এডিট এখনও সিঙ্ক না হয়ে থাকলে (pending outbox entry),
+  // সেই এডিটটাই আসল/সর্বশেষ কন্টেন্ট — কিন্তু আগে এখানে সরাসরি GitHub
+  // থেকে fresh fetch করা হতো, যেটা এডিটের *আগের* পুরনো ভার্সন নিয়ে
+  // আসত। ফলে নতুন নামের ফাইলে পুরনো কন্টেন্ট কপি হয়ে যেত, ইউজারের
+  // এডিট হারিয়ে যেত — এবং পুরনো path মুছে যাওয়ার পর outbox entry-টাও
+  // চিরকালের জন্য অনাথ (আর কখনো সিঙ্ক করা সম্ভব না এমন) হয়ে যেত।
+  const pendingOutbox = await cache.getOutboxEntry(node.path);
+
   let base64, putResult;
   try {
-    ({ base64 } = await api.fetchFileRaw(node.path));
+    base64 = pendingOutbox
+      ? api.encodeBase64Utf8(pendingOutbox.content)
+      : (await api.fetchFileRaw(node.path)).base64;
     putResult = await api.putFile(newPath, base64, `Rename ${node.path} → ${newPath}`);
   } catch (err) {
     alert("Could not rename: " + err.message);
@@ -813,7 +883,12 @@ async function renameFile(node, newName) {
   cache.deleteFile(node.path);
   if (!isImage(newName) && !isPdf(newName)) {
     try {
-      const content = api.decodeBase64Utf8(base64);
+      // pendingOutbox থাকলে সেটার content সরাসরি ব্যবহার করা হচ্ছে (আগেই
+      // plain text আকারে আছে) — base64 থেকে আবার decode করার দরকার নেই।
+      // rename-এর এই PUT কলটাই pending edit-এর জন্য প্রকৃত সিঙ্ক হিসেবে
+      // কাজ করল (GitHub-এ এখন নতুন path-এ সঠিক/সর্বশেষ কন্টেন্ট আছে),
+      // তাই নতুন করে outbox-এ queue করার দরকার নেই।
+      const content = pendingOutbox ? pendingOutbox.content : api.decodeBase64Utf8(base64);
       cache.setFile(newPath, { content, sha: putResult.content.sha });
     } catch (e) {
       // decode ব্যর্থ হলেও rename নিজে সফল হয়েছে — cache miss হলে
@@ -972,8 +1047,12 @@ function uploadAttachment(file) {
         // '..' থাকলে সেটা targetFolder-এর বাইরে গিয়ে অন্য কোথাও (এমনকি
         // vault-এর অন্য ফোল্ডারে) ফাইল কমিট করে ফেলতে পারত, ইউজারের অজান্তে।
         const safeName = sanitizeFilename(file.name);
-        const path = `${targetFolder}/${safeName}`;
-        await api.putFile(path, base64, `Add attachment ${safeName}`);
+        // একই নামের attachment আগে থেকে থাকলে (স্ক্রিনশট পেস্ট করলে প্রায়ই
+        // একই জেনেরিক নাম আসে) ব্লক করে বিরক্ত করার বদলে স্বয়ংক্রিয়ভাবে
+        // আলাদা নাম (image-1.png ইত্যাদি) দেওয়া হচ্ছে — আগে এটা GitHub-এ
+        // raw টেকনিক্যাল এরর দিয়ে ব্যর্থ হতো।
+        const path = uniquifyPath(`${targetFolder}/${safeName}`);
+        await api.putFile(path, base64, `Add attachment ${path.split("/").pop()}`);
         resolve();
       } catch (err) {
         alert("Upload failed: " + err.message);
@@ -1024,10 +1103,23 @@ fileTreeEl.addEventListener("drop", async (e) => {
 
   const dropped = await readDroppedEntries(e.dataTransfer);
   if (!dropped.length) return;
+  const skipped = [];
+  const failed = [];
   for (const { file, relPath } of dropped) {
-    await uploadDroppedFile(file, targetFolder, relPath);
+    try {
+      await uploadDroppedFile(file, targetFolder, relPath);
+    } catch (err) {
+      if (err.message === "EXISTS") skipped.push(relPath || file.name);
+      else failed.push(`${relPath || file.name}: ${err.message}`);
+    }
   }
   await loadFileTree();
+  if (skipped.length || failed.length) {
+    let msg = "";
+    if (skipped.length) msg += `Already exists, skipped:\n${skipped.join("\n")}`;
+    if (failed.length) msg += (msg ? "\n\n" : "") + `Failed to import:\n${failed.join("\n")}`;
+    alert(msg);
+  }
 });
 
 // মাউস কোন row-এর উপর আছে সেটা দেখে সেই ফোল্ডারকে হাইলাইট করা হয়
@@ -1102,13 +1194,19 @@ async function moveNode(node, targetFolder) {
     for (const f of filesToMove) {
       const relative = f.path.slice(node.path.length); // ফোল্ডার হলে "/sub/file.md", প্লেইন ফাইল হলে ""
       const newPath = node.type === "folder" ? `${newBasePath}${relative}` : newBasePath;
-      const { base64 } = await api.fetchFileRaw(f.path);
+      // renameFile()-এর মতোই — অফলাইনে করা এডিট সিঙ্ক-বাকি থাকলে
+      // (pending outbox), সেটাই আসল কন্টেন্ট। fresh GitHub fetch এখানে
+      // পুরনো ভার্সন এনে দিত, move-এর পর এডিট হারিয়ে যেত।
+      const pendingOutbox = await cache.getOutboxEntry(f.path);
+      const base64 = pendingOutbox
+        ? api.encodeBase64Utf8(pendingOutbox.content)
+        : (await api.fetchFileRaw(f.path)).base64;
       const putResult = await api.putFile(newPath, base64, `Move ${f.path} → ${newPath}`);
       await api.deleteFile(f.path, f.sha, `Move: remove old path ${f.path}`);
       cache.deleteFile(f.path);
       if (!isImage(newPath) && !isPdf(newPath)) {
         try {
-          const content = api.decodeBase64Utf8(base64);
+          const content = pendingOutbox ? pendingOutbox.content : api.decodeBase64Utf8(base64);
           cache.setFile(newPath, { content, sha: putResult.content.sha });
         } catch (e) {
           // decode ব্যর্থ হলেও move নিজে সফল হয়েছে — cache miss হলে পরের
@@ -1178,16 +1276,24 @@ async function readDroppedEntries(dataTransfer) {
 
 function uploadDroppedFile(file, targetFolder, relPath) {
   return new Promise((resolve, reject) => {
+    const safeRelPath = sanitizeRelPath(relPath || file.name);
+    const path = targetFolder ? `${targetFolder}/${safeRelPath}` : safeRelPath;
+    // আগে থেকে এই path-এ ফাইল থাকলে GitHub-এ পাঠিয়ে raw টেকনিক্যাল এরর
+    // (sha না দেওয়ার কারণে) পাওয়ার বদলে এখানেই আগে থেকে ধরে ফেলা হচ্ছে।
+    // একাধিক ফাইল একসাথে ড্র্যাগ করলে প্রতিটার জন্য আলাদা alert()
+    // বিরক্তিকর হতো, তাই এখানে শুধু reject করা হচ্ছে — drop
+    // হ্যান্ডলার পুরো ব্যাচ শেষে একটা সারাংশ দেখাবে।
+    if (findNodeByPath(path)) {
+      reject(new Error("EXISTS"));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async () => {
       try {
         const base64 = reader.result.split(",")[1];
-        const safeRelPath = sanitizeRelPath(relPath || file.name);
-        const path = targetFolder ? `${targetFolder}/${safeRelPath}` : safeRelPath;
         await api.putFile(path, base64, `Add ${path} (drag & drop)`);
         resolve();
       } catch (err) {
-        alert(`Could not import "${file.name}": ` + err.message);
         reject(err);
       }
     };
@@ -1472,7 +1578,12 @@ async function submitDeleteConfirm() {
     // হলে এটা এরর দেবে, এবং ডিলিট অ্যাকশন চালানো হবে না
     await api.login(pin);
   } catch (err) {
-    deleteConfirmError.textContent = "Wrong PIN — nothing was deleted.";
+    // আগে এখানে যেকোনো এরর হলেই (নেট সমস্যা সহ) সবসময় "Wrong PIN"
+    // দেখানো হতো — ফলে অফলাইনে ডিলিট করতে গেলে ইউজার ভাবতেন নিজের
+    // PIN-ই ভুলে গেছেন, যদিও আসল কারণ ছিল সংযোগ। এখন api.login()
+    // যা বলে (ভুল PIN / বারবার চেষ্টা / নেট সমস্যা) সেটাই দেখানো
+    // হচ্ছে — মূল লগইন স্ক্রিনে যেভাবে দেখানো হয়, এটাও সেভাবেই।
+    deleteConfirmError.textContent = err.message + " — nothing was deleted.";
     deleteConfirmError.hidden = false;
     deleteConfirmPin.value = "";
     deleteConfirmPin.focus();
