@@ -10,6 +10,13 @@
 
 ## পুরনো "সর্বশেষ অবস্থা" changelog এন্ট্রি (কালানুক্রমে, নতুন থেকে পুরনো)
 
+**commit (২০২৬-০৮-১৪):** মোবাইলে (`max-width: 780px`) `showApp()`-এ
+এখন login/session-restore-এর পরপরই sidebar-এ `open` ক্লাস আর overlay-তে
+`show` ক্লাস স্বয়ংক্রিয়ভাবে যোগ করা হয় (`window.matchMedia` চেক দিয়ে)
+— আগে শুধু hamburger বাটনে ট্যাপ করলেই খুলত। ফাইলে ট্যাপ করলে আগের মতোই
+বন্ধ হয় (row click handler-এর `closeMobileSidebar()` অপরিবর্তিত)।
+ডেস্কটপে কোনো প্রভাব নেই (সেখানে sidebar এমনিতেই স্থায়ীভাবে দেখা যায়)।
+
 **commit (২০২৬-০৮-১৪):** Client-side error logging যোগ হয়েছে
 (ইউজারের অনুরোধে — "spy" হিসেবে বর্ণিত, মূলত error tracking)।
 - `js/cache.js`-এ নতুন `STORE_ERRORS` (IndexedDB, DB_VERSION 2→3):

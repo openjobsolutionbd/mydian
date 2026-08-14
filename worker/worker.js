@@ -56,12 +56,38 @@ async function verifySessionToken(secret, token) {
   return true;
 }
 
-function corsHeaders(origin) {
-  return {
-    "Access-Control-Allow-Origin": origin || "*",
+// কোন origin (browser-এ চলা ওয়েবসাইট) থেকে এই worker-এ request করা যাবে
+// তার allowlist। env.ALLOWED_ORIGINS সেট থাকলে সেটা ব্যবহার হয় (কমা দিয়ে
+// আলাদা করা, যেমন "https://mydian-tei.pages.dev,https://example.com")।
+// না থাকলে অ্যাপের known লাইভ URL-ই ডিফল্ট।
+//
+// আগে corsHeaders() request-এ যেই Origin header আসত সেটাই হুবহু ফেরত
+// দিত (Access-Control-Allow-Origin: <যা আসছে তাই>) — মানে টেকনিক্যালি
+// অন্য যেকোনো ওয়েবসাইট থেকে browser দিয়ে এই worker-এ fetch() করা সম্ভব
+// ছিল, ব্রাউজার সেই response পড়তেও দিত। session token কুকি না হওয়ায়
+// এটা সরাসরি বিপজ্জনক ছিল না (অন্য সাইট token পড়তে পারত না), কিন্তু
+// defense-in-depth হিসেবে এখন শুধু allowlist-এ থাকা origin-ই allow করা
+// হচ্ছে — allowlist-এ না থাকলে Access-Control-Allow-Origin header-ই বসানো
+// হয় না, ফলে ব্রাউজার response ব্লক করে দেয়।
+const DEFAULT_ALLOWED_ORIGINS = ["https://mydian-tei.pages.dev"];
+
+function isAllowedOrigin(origin, env) {
+  if (!origin) return false;
+  const list = env.ALLOWED_ORIGINS
+    ? env.ALLOWED_ORIGINS.split(",").map((s) => s.trim())
+    : DEFAULT_ALLOWED_ORIGINS;
+  return list.includes(origin);
+}
+
+function corsHeaders(origin, env) {
+  const headers = {
     "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
+  if (isAllowedOrigin(origin, env)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
 }
 
 function json(data, status = 200, extraHeaders = {}) {
@@ -93,7 +119,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin");
-    const cors = corsHeaders(origin);
+    const cors = corsHeaders(origin, env);
 
     // Preflight
     if (request.method === "OPTIONS") {
