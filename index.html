@@ -141,7 +141,7 @@
   <!-- ===== Quick switcher (Ctrl/Cmd+K) — টাইপ করে ফাইল খোঁজা ও এক Enter-এ খোলা ===== -->
   <div class="modal-overlay" id="quick-switcher-overlay" hidden>
     <div class="modal quick-switcher">
-      <input type="text" id="quick-switcher-input" placeholder="ফাইলের নাম টাইপ করুন…" autocomplete="off" />
+      <input type="text" id="quick-switcher-input" placeholder="Type a file name…" autocomplete="off" />
       <div class="quick-switcher-results" id="quick-switcher-results"></div>
     </div>
   </div>
@@ -167,11 +167,11 @@
     </div>
   </div>
 
-  <!-- ===== Error log viewer — Settings-এর "View Error Log"-এ ক্লিক করলে খোলে ===== -->
+  <!-- ===== Error log viewer — opens from "View Error Log" in Settings ===== -->
   <div class="modal-overlay" id="error-log-overlay" hidden>
     <div class="modal error-log-modal">
       <h3>Error Log</h3>
-      <p class="modal-hint">এই তালিকা শুধু এই ব্রাউজারেই থাকে — কোথাও পাঠানো হয় না।</p>
+      <p class="modal-hint">This list stays only in this browser — it's never sent anywhere.</p>
       <div class="error-log-list" id="error-log-list"></div>
       <div class="modal-actions">
         <button class="btn-ghost" id="error-log-clear">Clear Log</button>
@@ -180,18 +180,18 @@
     </div>
   </div>
 
-  <!-- ===== ডিলিট কনফার্ম মোডাল (PIN দিয়ে) ===== -->
+  <!-- ===== Delete confirm modal (with PIN) ===== -->
   <div class="modal-overlay" id="delete-confirm-overlay" hidden>
     <div class="modal">
-      <h3>ডিলিট নিশ্চিত করুন</h3>
+      <h3>Confirm Delete</h3>
       <p class="modal-hint" id="delete-confirm-message"></p>
       <form id="delete-confirm-form">
-        <input type="password" id="delete-confirm-pin" inputmode="numeric" autocomplete="off" placeholder="আপনার PIN দিন" />
+        <input type="password" id="delete-confirm-pin" inputmode="numeric" autocomplete="off" placeholder="Enter your PIN" />
       </form>
       <p class="login-error" id="delete-confirm-error" hidden></p>
       <div class="modal-actions">
-        <button class="btn-ghost" id="delete-confirm-cancel">বাতিল</button>
-        <button class="btn-primary danger" id="delete-confirm-submit">ডিলিট করুন</button>
+        <button class="btn-ghost" id="delete-confirm-cancel">Cancel</button>
+        <button class="btn-primary danger" id="delete-confirm-submit">Delete</button>
       </div>
     </div>
   </div>

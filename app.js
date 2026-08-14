@@ -1574,7 +1574,7 @@ function formatErrorTime(timestamp) {
 async function renderErrorLog() {
   const errors = await cache.getAllErrors();
   if (errors.length === 0) {
-    errorLogList.innerHTML = `<div class="error-log-empty">কোনো error লগ হয়নি — ভালো খবর!</div>`;
+    errorLogList.innerHTML = `<div class="error-log-empty">No errors logged — good news!</div>`;
     return;
   }
   errorLogList.innerHTML = errors
@@ -1844,7 +1844,7 @@ function renderQuickSwitcherResults(query) {
 
 function renderQuickSwitcherList() {
   if (qsResults.length === 0) {
-    quickSwitcherResults.innerHTML = `<div class="qs-empty">কোনো ফাইল পাওয়া যায়নি</div>`;
+    quickSwitcherResults.innerHTML = `<div class="qs-empty">No files found</div>`;
     return;
   }
   quickSwitcherResults.innerHTML = qsResults
@@ -1856,6 +1856,11 @@ function renderQuickSwitcherList() {
       </div>`;
     })
     .join("");
+  // ফলাফলের লিস্টের height সীমিত (scrollable) — নোট বেশি থাকলে ↑↓ দিয়ে
+  // সিলেক্টেড আইটেম দৃশ্যপটের বাইরে চলে যেতে পারত (লিস্ট নিজে থেকে স্ক্রল
+  // হতো না)। "nearest" ব্যবহার করা হচ্ছে যাতে প্রতিবার কেন্দ্রে না নিয়ে
+  // গিয়ে শুধু প্রয়োজনমতোই স্ক্রল করে, বেশি ঝাঁকুনি না লাগে।
+  quickSwitcherResults.querySelector(".qs-item.active")?.scrollIntoView({ block: "nearest" });
 }
 
 function selectQuickSwitcherResult(index) {

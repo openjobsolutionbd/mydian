@@ -10,6 +10,28 @@
 
 ## পুরনো "সর্বশেষ অবস্থা" changelog এন্ট্রি (কালানুক্রমে, নতুন থেকে পুরনো)
 
+**commit (২০২৬-০৮-১৪):** Client-side error logging যোগ হয়েছে
+(ইউজারের অনুরোধে — "spy" হিসেবে বর্ণিত, মূলত error tracking)।
+- `js/cache.js`-এ নতুন `STORE_ERRORS` (IndexedDB, DB_VERSION 2→3):
+  `logError()`, `getAllErrors()`, `clearErrors()`, আর ভেতরে
+  `pruneErrors()` (সর্বোচ্চ `MAX_ERROR_ENTRIES=200`, তার বেশি হলে
+  timestamp-index cursor দিয়ে সবচেয়ে পুরনোগুলো ছাঁটাই)। বাকি সব
+  store-এর মতোই best-effort — ব্যর্থ হলে চুপচাপ false/[] রিটার্ন করে।
+- `app.js`-এর একদম শুরুতে (import-এর ঠিক পরে) `window.addEventListener("error", ...)`
+  আর `("unhandledrejection", ...)` — অ্যাপ init হওয়ার আগে ঘটা error-ও
+  ধরার জন্য এত উপরে বসানো।
+- Settings মোডালে "View Error Log" বাটন → নতুন `#error-log-overlay`
+  মোডাল, তালিকা নতুন-থেকে-পুরনো, প্রতি এন্ট্রিতে সময়/মেসেজ/সোর্স +
+  collapsible stack trace (`<details>`)। "Clear Log" বাটনও আছে।
+- **সিদ্ধান্ত: শুধু লোকাল IndexedDB, GitHub-এ পাঠানো হয় না** — ইউজারকে
+  জিজ্ঞেস করা হয়েছিল, তিনি সিদ্ধান্ত Claude-কে ছেড়ে দেন। কারণ:
+  স্ট্যাক ট্রেসে ইন্টারনাল পাথ/স্টেট থাকতে পারে, আর প্রতি error-এ
+  GitHub commit করা অপ্রয়োজনীয় নেটওয়ার্ক/rate-limit খরচ।
+- **push করার সময় remote এগিয়ে গিয়েছিল** (অন্য session-এর ৪-বাগ-ফিক্স
+  কমিট, সম্পূর্ণ ভিন্ন এলাকা — offline sync/rename/duplicate-path/PIN
+  error) — আগের নিয়ম মতোই stash → fast-forward pull → stash pop,
+  `sw.js`-এর BUILD_ID conflict resolve করে merge করা হয়েছে।
+
 **commit (২০২৬-০৮-১৩):** টোকেন-সচেতন workflow নিয়ম যোগ করা
 হলো সেকশন ৩-এ (সংক্ষিপ্ত entry, অপ্রয়োজনীয় দ্বিতীয় fetch এড়ানো,
 CHANGELOG/PROJECT_NOTES-এ ডুপ্লিকেট বিস্তারিত না লেখা) — ইউজারের
