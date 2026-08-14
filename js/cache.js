@@ -13,10 +13,11 @@
 // সবসময় আসল/চূড়ান্ত ডেটা, ক্যাশ শুধু গতি বাড়ানোর একটা layer।
 
 const DB_NAME = "mydian-cache";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_FILES = "files"; // key: path -> { path, content, sha, updatedAt }
 const STORE_META = "meta"; // key: "tree" -> { key, value: flatFiles[], updatedAt }
 const STORE_OUTBOX = "outbox"; // key: path -> { path, content, baseSha, queuedAt } — GitHub-এ এখনো না-পাঠানো অফলাইন এডিট
+const STORE_ERRORS = "errors"; // key: auto-increment id -> { message, stack, source, timestamp }
 
 let dbPromise = null;
 
@@ -38,6 +39,14 @@ function openDb() {
       }
       if (!db.objectStoreNames.contains(STORE_OUTBOX)) {
         db.createObjectStore(STORE_OUTBOX, { keyPath: "path" });
+      }
+      if (!db.objectStoreNames.contains(STORE_ERRORS)) {
+        // auto-increment id — error-এর নিজস্ব কোনো natural key নেই (একই
+        // মেসেজ বারবার ঘটতে পারে), তাই keyPath না দিয়ে autoIncrement।
+        // timestamp-এ index রাখা হলো যাতে পুরনো এন্ট্রি ছাঁটাই (prune)
+        // করার সময় পুরো store স্ক্যান না করে দ্রুত খুঁজে পাওয়া যায়।
+        const errStore = db.createObjectStore(STORE_ERRORS, { keyPath: "id", autoIncrement: true });
+        errStore.createIndex("timestamp", "timestamp");
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -217,5 +226,96 @@ export async function clearOutboxEntry(path) {
     return true;
   } catch (err) {
     return false;
+  }
+}
+
+// ============================================================
+// Error log — অ্যাপে JS error (uncaught exception, unhandled promise
+// rejection) হলে app.js-এর গ্লোবাল হ্যান্ডলার এখানে লগ করে। উদ্দেশ্য:
+// ইউজার নিজে থেকে বাগ রিপোর্ট/স্ক্রিনশট না দিলেও পরে Settings থেকে
+// দেখা যায় ঠিক কী error হয়েছিল, কখন, এবং কোথায় (স্ট্যাক ট্রেস)।
+//
+// এই ডেটা শুধুই লোকাল IndexedDB-তে থাকে — কোথাও পাঠানো হয় না (GitHub-এ
+// না, কোনো তৃতীয় পক্ষের সার্ভারেও না)। ইচ্ছাকৃতভাবে, কারণ স্ট্যাক
+// ট্রেসে মাঝেমধ্যে ইন্টারনাল ফাইল পাথ/স্টেট চলে আসতে পারে, যেটা GitHub-এর
+// মতো shared জায়গায় রাখা অপ্রয়োজনীয় ঝুঁকি।
+// ============================================================
+
+const MAX_ERROR_ENTRIES = 200; // এর বেশি জমলে সবচেয়ে পুরনোগুলো ছাঁটাই হয়ে যায়
+
+export async function logError({ message, stack, source }) {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE_ERRORS, "readwrite");
+    tx.objectStore(STORE_ERRORS).add({
+      message: String(message || "Unknown error").slice(0, 2000),
+      stack: stack ? String(stack).slice(0, 4000) : null,
+      source: source || null,
+      timestamp: Date.now(),
+    });
+    return true;
+  } catch (err) {
+    // লগিং নিজেই ব্যর্থ হলে চুপচাপ থেমে যাওয়া — একটা logging bug যেন
+    // মূল অ্যাপকে আরেকটা error লুপে না ফেলে
+    return false;
+  } finally {
+    pruneErrors(); // fire-and-forget — প্রতিটা লগের পর await করার দরকার নেই
+  }
+}
+
+// সবচেয়ে নতুন এন্ট্রি আগে (নতুন-থেকে-পুরনো), Settings-এর লিস্টে
+// দেখানোর জন্য সবচেয়ে প্রাসঙ্গিক ক্রম
+export async function getAllErrors() {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE_ERRORS, "readonly");
+    const all = await reqToPromise(tx.objectStore(STORE_ERRORS).getAll());
+    return (all || []).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  } catch (err) {
+    return [];
+  }
+}
+
+export async function clearErrors() {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE_ERRORS, "readwrite");
+    tx.objectStore(STORE_ERRORS).clear();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+// MAX_ERROR_ENTRIES-এর বেশি জমলে সবচেয়ে পুরনো এন্ট্রিগুলো মুছে ফেলে —
+// একটা বাগ যদি বারবার (লুপে) error ছুঁড়তে থাকে, সেটা যেন IndexedDB-কে
+// অসীমভাবে বড় করে না ফেলে।
+async function pruneErrors() {
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE_ERRORS, "readwrite");
+    const store = tx.objectStore(STORE_ERRORS);
+    const count = await reqToPromise(store.count());
+    if (count <= MAX_ERROR_ENTRIES) return;
+    const index = store.index("timestamp");
+    let toDelete = count - MAX_ERROR_ENTRIES;
+    // timestamp index-এ পুরনো-থেকে-নতুন ক্রমে (ডিফল্ট) cursor দিয়ে হেঁটে
+    // সবচেয়ে পুরনো toDelete-সংখ্যক এন্ট্রি মুছে ফেলা
+    await new Promise((resolve) => {
+      const cursorReq = index.openCursor();
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (!cursor || toDelete <= 0) {
+          resolve();
+          return;
+        }
+        cursor.delete();
+        toDelete--;
+        cursor.continue();
+      };
+      cursorReq.onerror = () => resolve();
+    });
+  } catch (err) {
+    // ছাঁটাই ব্যর্থ হলেও চুপচাপ — এটা কোনো critical path না
   }
 }

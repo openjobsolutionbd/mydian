@@ -157,9 +157,25 @@
       <p class="modal-hint">
         <button class="link-btn" id="settings-clear-cache">Clear Cache</button>
       </p>
+      <p class="modal-hint">
+        <button class="link-btn" id="settings-view-errors">View Error Log</button>
+      </p>
       <div class="modal-actions">
         <button class="btn-ghost" id="settings-close">Close</button>
         <button class="btn-primary danger" id="settings-logout">Log Out</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Error log viewer — Settings-এর "View Error Log"-এ ক্লিক করলে খোলে ===== -->
+  <div class="modal-overlay" id="error-log-overlay" hidden>
+    <div class="modal error-log-modal">
+      <h3>Error Log</h3>
+      <p class="modal-hint">এই তালিকা শুধু এই ব্রাউজারেই থাকে — কোথাও পাঠানো হয় না।</p>
+      <div class="error-log-list" id="error-log-list"></div>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="error-log-clear">Clear Log</button>
+        <button class="btn-primary" id="error-log-close">Close</button>
       </div>
     </div>
   </div>

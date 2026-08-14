@@ -786,6 +786,66 @@ input {
   color: var(--accent-strong);
 }
 
+/* ============ Error log viewer ============ */
+.error-log-modal {
+  max-width: 560px;
+  text-align: left;
+}
+
+.error-log-list {
+  max-height: 360px;
+  overflow-y: auto;
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.error-log-item {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
+.error-log-item-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.error-log-item-message {
+  font-size: 13px;
+  color: var(--danger);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.error-log-item-source {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+/* স্ট্যাক ট্রেস ডিফল্টভাবে লুকানো — অনেক লম্বা হতে পারে, তাই লিস্টটা
+   দ্রুত স্ক্যান করার জন্য <details>/<summary> দিয়ে collapse করা */
+.error-log-item-stack {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-top: 6px;
+  font-family: var(--font-mono, monospace);
+}
+
+.error-log-empty {
+  padding: 20px 10px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .btn-primary {
   background: var(--accent);
   color: #1a1408;

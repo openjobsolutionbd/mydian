@@ -26,7 +26,29 @@
 
 ## ০. সর্বশেষ অবস্থা
 
-**সর্বশেষ commit (২০২৬-০৮-১৩):** টোকেন-সচেতন workflow নিয়ম যোগ করা
+**সর্বশেষ commit (২০২৬-০৮-১৪):** Client-side error logging যোগ হয়েছে
+(ইউজারের অনুরোধে — "spy" হিসেবে বর্ণিত, মূলত error tracking)।
+- `js/cache.js`-এ নতুন `STORE_ERRORS` (IndexedDB, DB_VERSION 2→3):
+  `logError()`, `getAllErrors()`, `clearErrors()`, আর ভেতরে
+  `pruneErrors()` (সর্বোচ্চ `MAX_ERROR_ENTRIES=200`, তার বেশি হলে
+  timestamp-index cursor দিয়ে সবচেয়ে পুরনোগুলো ছাঁটাই)। বাকি সব
+  store-এর মতোই best-effort — ব্যর্থ হলে চুপচাপ false/[] রিটার্ন করে।
+- `app.js`-এর একদম শুরুতে (import-এর ঠিক পরে) `window.addEventListener("error", ...)`
+  আর `("unhandledrejection", ...)` — অ্যাপ init হওয়ার আগে ঘটা error-ও
+  ধরার জন্য এত উপরে বসানো।
+- Settings মোডালে "View Error Log" বাটন → নতুন `#error-log-overlay`
+  মোডাল, তালিকা নতুন-থেকে-পুরনো, প্রতি এন্ট্রিতে সময়/মেসেজ/সোর্স +
+  collapsible stack trace (`<details>`)। "Clear Log" বাটনও আছে।
+- **সিদ্ধান্ত: শুধু লোকাল IndexedDB, GitHub-এ পাঠানো হয় না** — ইউজারকে
+  জিজ্ঞেস করা হয়েছিল, তিনি সিদ্ধান্ত Claude-কে ছেড়ে দেন। কারণ:
+  স্ট্যাক ট্রেসে ইন্টারনাল পাথ/স্টেট থাকতে পারে, আর প্রতি error-এ
+  GitHub commit করা অপ্রয়োজনীয় নেটওয়ার্ক/rate-limit খরচ।
+- **push করার সময় remote এগিয়ে গিয়েছিল** (অন্য session-এর ৪-বাগ-ফিক্স
+  কমিট, সম্পূর্ণ ভিন্ন এলাকা — offline sync/rename/duplicate-path/PIN
+  error) — আগের নিয়ম মতোই stash → fast-forward pull → stash pop,
+  `sw.js`-এর BUILD_ID conflict resolve করে merge করা হয়েছে।
+
+**তার আগের commit (২০২৬-০৮-১৩):** টোকেন-সচেতন workflow নিয়ম যোগ করা
 হলো সেকশন ৩-এ (সংক্ষিপ্ত entry, অপ্রয়োজনীয় দ্বিতীয় fetch এড়ানো,
 CHANGELOG/PROJECT_NOTES-এ ডুপ্লিকেট বিস্তারিত না লেখা) — ইউজারের
 স্পষ্ট নির্দেশে।
@@ -42,43 +64,6 @@ CHANGELOG/PROJECT_NOTES-এ ডুপ্লিকেট বিস্তারি
   সামঞ্জস্যও ঠিক রাখে (রাখা এন্ট্রির মধ্যে শুধু প্রথমটাই "সর্বশেষ" বলে)।
 - `scripts/verify.sh`-এ এটা যোগ করা হয়েছে মূল `verify.py` চেকের ঠিক
   আগে — তাই প্রতিবার push-এর আগে এমনিতেই চলে, আলাদা কোনো ধাপ লাগে না।
-
-**তার আগের commit (২০২৬-০৮-১২):** বাকি ৪টা "যৌক্তিক বাগ"-ও ঠিক করা
-হয়েছে — এখন মোট ৬টার সবগুলোই ঠিক।
-
-1. **অফলাইন এডিট cache-corruption (race condition):** `openTextFile()`-এ
-   pending outbox entry থাকলে আগে isDirty=true সেট করে editor-কে
-   protect করা হতো, কিন্তু তারপরও নিঃশর্তে `fetchFile()` + `cache.setFile()`
-   চলত — persistent cache-এ পুরনো (এডিটের আগের) কন্টেন্ট বসে যেত। ট্যাব
-   বন্ধ করে sync সফল হওয়ার আগে আবার ফাইল খুললে ইউজারের এডিট "হারিয়ে
-   গেছে" মনে হতো (আসলে outbox-এ নিরাপদ ছিল, শুধু ভুল কন্টেন্ট দেখাত)।
-   এখন pending outbox থাকলে fresh fetch সম্পূর্ণ স্কিপ হয়, সাথে
-   defensive fallback (files-cache মিসিং হলেও outbox থেকে সরাসরি দেখায়)।
-2. **Rename/move-এ pending edit হারানো:** `renameFile()` আর
-   `moveNode()` (নতুন drag-move ফিচার, একই বাগ ছিল) দুটোই GitHub থেকে
-   fresh fetch করে কপি বানাত — pending outbox edit থাকলে সেটা উপেক্ষা
-   করে পুরনো ভার্সন কপি হতো, নতুন নাম/জায়গায় এডিট হারিয়ে যেত, আর
-   outbox entry পুরনো (মুছে ফেলা) path-এ অনাথ হয়ে যেত। এখন দুটোতেই
-   pending outbox থাকলে সেটার content ব্যবহার হয়।
-3. **নতুন ফাইলে duplicate-check না থাকা:** `renameFile()`-এ আগে থেকেই
-   ছিল, কিন্তু `createFile()`/`createFolder()`-এ ছিল না — একই নামে
-   তৈরি করলে GitHub-এর raw টেকনিক্যাল এরর দেখাত। এখন সামঞ্জস্যপূর্ণ
-   বার্তা দেখায়। Drag-drop bulk import-এ প্রতি-ফাইলে আলাদা alert()-এর
-   বদলে ব্যাচ শেষে একটা সারাংশ (skipped/failed তালিকা)। Attachment
-   upload-এ (পেস্ট করা স্ক্রিনশট প্রায়ই একই নামে আসে বলে) ব্লক না করে
-   `uniquifyPath()` দিয়ে স্বয়ংক্রিয়ভাবে `-1`, `-2` যোগ করে আলাদা নাম।
-4. **Delete-confirmation-এ ভুল "Wrong PIN":** `js/api.js`-এর `login()`
-   আগে network failure (অফলাইন) আর server-এর "ভুল PIN" রেসপন্স দুটোকেই
-   একই Error হিসেবে throw করত — `submitDeleteConfirm()` তখন সবসময়
-   hardcoded "Wrong PIN — nothing was deleted." দেখাত, নেট সমস্যা হলেও।
-   এখন `login()` network failure-কে আলাদা বার্তা দিয়ে throw করে, আর
-   delete-confirm সেই আসল `err.message`-ই দেখায় (মূল login screen যেভাবে
-   করে)। এই ফিক্স মূল login screen-কেও ফ্রি-তে ভালো করে দিয়েছে (আগে
-   network error হলে raw "Failed to fetch" দেখাত)।
-
-প্রতিটা fix `scripts/verify.sh`-এর সব চেক পাস করেছে। `uniquifyPath()` আর
-`moveNode()`-এর pending-outbox লজিক আলাদাভাবে টেস্ট করে (মক ডেটা দিয়ে)
-যাচাই করা হয়েছে।
 
 *এই সেকশনে সবসময় সর্বশেষ ৩টা commit-এন্ট্রি রাখা হয় — তার বেশি জমলেই
 সবচেয়ে পুরনোটা(গুলো) `HISTORY.md`-এর "পুরনো সর্বশেষ অবস্থা" সেকশনের

@@ -5,6 +5,31 @@ import * as cache from "./js/cache.js";
 import { buildTree, sortedEntries, isMarkdown, isImage, isPdf } from "./js/tree.js";
 import { createEditor, setEditorContent, destroyEditor } from "./js/editor.js";
 
+// ============================================================
+// গ্লোবাল error log — অ্যাপে কোথাও uncaught exception বা unhandled
+// promise rejection হলে স্বয়ংক্রিয়ভাবে IndexedDB-তে (cache.js-এর
+// মাধ্যমে) লগ হয়ে যায়। ইউজার স্ক্রিনশট/বর্ণনা না দিলেও পরে Settings
+// থেকে দেখা যায় কী হয়েছিল। ফাইলের একদম শুরুতে বসানো হয়েছে যাতে বাকি
+// অ্যাপ init হওয়ার আগে ঘটা যেকোনো error-ও ধরা পড়ে।
+// ============================================================
+
+window.addEventListener("error", (event) => {
+  cache.logError({
+    message: event.message,
+    stack: event.error && event.error.stack ? event.error.stack : null,
+    source: event.filename ? `${event.filename}:${event.lineno}:${event.colno}` : null,
+  });
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  cache.logError({
+    message: reason && reason.message ? reason.message : String(reason),
+    stack: reason && reason.stack ? reason.stack : null,
+    source: "unhandled promise rejection",
+  });
+});
+
 // ---------- DOM references ----------
 const el = (id) => document.getElementById(id);
 
@@ -54,6 +79,11 @@ const settingsVaultInfo = el("settings-vault-info");
 const settingsClose = el("settings-close");
 const settingsLogout = el("settings-logout");
 const settingsClearCache = el("settings-clear-cache");
+const settingsViewErrors = el("settings-view-errors");
+const errorLogOverlay = el("error-log-overlay");
+const errorLogList = el("error-log-list");
+const errorLogClear = el("error-log-clear");
+const errorLogClose = el("error-log-close");
 const settingsThemeToggle = el("settings-theme-toggle");
 const themeColorMeta = el("theme-color-meta");
 
@@ -1513,6 +1543,59 @@ settingsClearCache.addEventListener("click", async () => {
   if (!confirm("Clear the local cache? This won't delete any of your notes, it only resets the fast-loading copy.")) return;
   await cache.clearAll();
   window.location.reload();
+});
+
+// ============================================================
+// Error log viewer — Settings > "View Error Log"
+// ============================================================
+
+function formatErrorTime(timestamp) {
+  try {
+    return new Date(timestamp).toLocaleString();
+  } catch (err) {
+    return "";
+  }
+}
+
+async function renderErrorLog() {
+  const errors = await cache.getAllErrors();
+  if (errors.length === 0) {
+    errorLogList.innerHTML = `<div class="error-log-empty">কোনো error লগ হয়নি — ভালো খবর!</div>`;
+    return;
+  }
+  errorLogList.innerHTML = errors
+    .map((e) => {
+      const stackBlock = e.stack
+        ? `<details><summary>Stack trace</summary><div class="error-log-item-stack">${escapeHtml(e.stack)}</div></details>`
+        : "";
+      const sourceLine = e.source ? `<div class="error-log-item-source">${escapeHtml(e.source)}</div>` : "";
+      return `<div class="error-log-item">
+        <div class="error-log-item-time">${escapeHtml(formatErrorTime(e.timestamp))}</div>
+        <div class="error-log-item-message">${escapeHtml(e.message)}</div>
+        ${sourceLine}
+        ${stackBlock}
+      </div>`;
+    })
+    .join("");
+}
+
+settingsViewErrors.addEventListener("click", async () => {
+  errorLogOverlay.hidden = false;
+  await renderErrorLog();
+});
+
+errorLogClear.addEventListener("click", async () => {
+  if (!confirm("Clear the entire error log? This can't be undone.")) return;
+  await cache.clearErrors();
+  await renderErrorLog();
+});
+
+errorLogClose.addEventListener("click", () => {
+  errorLogOverlay.hidden = true;
+});
+
+errorLogOverlay.addEventListener("click", (e) => {
+  if (e.target === errorLogOverlay) errorLogOverlay.hidden = true;
 });
 
 // ============================================================
