@@ -1233,37 +1233,69 @@ async function moveNode(node, targetFolder) {
   const wasOpenPath = currentFile ? currentFile.path : null;
   if (wasOpenPath && filesToMove.some((f) => f.path === wasOpenPath)) cancelPendingSave();
 
-  const moved = []; // সফলভাবে সরানো ফাইলের { oldPath, newPath } হিসাব — আংশিক ব্যর্থতা হলে রিপোর্ট/currentFile আপডেটের জন্য দরকার
-  try {
-    for (const f of filesToMove) {
-      const relative = f.path.slice(node.path.length); // ফোল্ডার হলে "/sub/file.md", প্লেইন ফাইল হলে ""
-      const newPath = node.type === "folder" ? `${newBasePath}${relative}` : newBasePath;
-      // renameFile()-এর মতোই — অফলাইনে করা এডিট সিঙ্ক-বাকি থাকলে
-      // (pending outbox), সেটাই আসল কন্টেন্ট। fresh GitHub fetch এখানে
-      // পুরনো ভার্সন এনে দিত, move-এর পর এডিট হারিয়ে যেত।
-      const pendingOutbox = await cache.getOutboxEntry(f.path);
-      const base64 = pendingOutbox
+  const moved = []; // সফলভাবে সরানো ফাইলের { oldPath, newPath } হিসাব
+  const duplicated = []; // নতুন জায়গায় কপি সফল হয়েছে কিন্তু পুরনোটা ডিলিট করা যায়নি — ম্যানুয়াল সাফাই লাগবে
+  const failed = []; // সম্পূর্ণ ব্যর্থ (নতুন জায়গায় কপি-ই হয়নি) — পুরনো জায়গায় অপরিবর্তিত আছে
+  for (const f of filesToMove) {
+    const relative = f.path.slice(node.path.length); // ফোল্ডার হলে "/sub/file.md", প্লেইন ফাইল হলে ""
+    const newPath = node.type === "folder" ? `${newBasePath}${relative}` : newBasePath;
+    // renameFile()-এর মতোই — অফলাইনে করা এডিট সিঙ্ক-বাকি থাকলে
+    // (pending outbox), সেটাই আসল কন্টেন্ট। fresh GitHub fetch এখানে
+    // পুরনো ভার্সন এনে দিত, move-এর পর এডিট হারিয়ে যেত।
+    const pendingOutbox = await cache.getOutboxEntry(f.path);
+    let base64, putResult;
+    try {
+      base64 = pendingOutbox
         ? api.encodeBase64Utf8(pendingOutbox.content)
         : (await api.fetchFileRaw(f.path)).base64;
-      const putResult = await api.putFile(newPath, base64, `Move ${f.path} → ${newPath}`);
-      await api.deleteFile(f.path, f.sha, `Move: remove old path ${f.path}`);
-      cache.deleteFile(f.path);
-      if (!isImage(newPath) && !isPdf(newPath)) {
-        try {
-          const content = pendingOutbox ? pendingOutbox.content : api.decodeBase64Utf8(base64);
-          cache.setFile(newPath, { content, sha: putResult.content.sha });
-        } catch (e) {
-          // decode ব্যর্থ হলেও move নিজে সফল হয়েছে — cache miss হলে পরের
-          // ওপেনে স্বাভাবিকভাবেই network থেকে আনবে, কোনো ক্ষতি নেই
-        }
-      }
-      moved.push({ oldPath: f.path, newPath });
+      putResult = await api.putFile(newPath, base64, `Move ${f.path} → ${newPath}`);
+    } catch (err) {
+      // নতুন জায়গায় কপিই হয়নি — পুরনো ফাইল অক্ষত আছে, এই একটা ফাইল
+      // failed হিসেবে গণ্য করে বাকি ফাইলগুলোর জন্য loop চালিয়ে যাওয়া
+      // হচ্ছে (আগে একটা ফাইল ব্যর্থ হলে গোটা batch থেমে যেত, যদিও বাকি
+      // ফাইলগুলো সফল হতে পারত)।
+      failed.push(f.path);
+      continue;
     }
-  } catch (err) {
-    alert(
-      `Move did not fully complete: ${err.message}\n` +
-      (moved.length ? `${moved.length} of ${filesToMove.length} file(s) were already moved before the error — refreshing the list.` : "")
-    );
+    // এই পয়েন্টে নতুন জায়গায় কপি সফল — এখন থেকে যদি delete ব্যর্থ হয়,
+    // ফাইলটা দুই জায়গাতেই থেকে যাবে (duplicate)। একবার রিট্রাই করা
+    // হচ্ছে (network blip-এর মতো ক্ষণস্থায়ী সমস্যা প্রায়ই একবার আবার
+    // চেষ্টা করলেই ঠিক হয়ে যায়), তারপরও ব্যর্থ হলে duplicate হিসেবে
+    // স্পষ্টভাবে রিপোর্ট করা হচ্ছে — যাতে ইউজার জানেন ম্যানুয়ালি পুরনো
+    // কপি মুছতে হবে, বিভ্রান্তিকরভাবে "সব ঠিক আছে" মনে না করেন।
+    let deleted = false;
+    for (let attempt = 0; attempt < 2 && !deleted; attempt++) {
+      try {
+        await api.deleteFile(f.path, f.sha, `Move: remove old path ${f.path}`);
+        deleted = true;
+      } catch (err) {
+        if (attempt === 1) duplicated.push({ oldPath: f.path, newPath });
+      }
+    }
+    if (!deleted) continue; // পুরনো কপি রয়ে গেছে — নিচের cache/moved আপডেট এড়িয়ে যাওয়া হচ্ছে, কারণ পুরনো path-এর cache entry এখনো বৈধ
+    cache.deleteFile(f.path);
+    if (!isImage(newPath) && !isPdf(newPath)) {
+      try {
+        const content = pendingOutbox ? pendingOutbox.content : api.decodeBase64Utf8(base64);
+        cache.setFile(newPath, { content, sha: putResult.content.sha });
+      } catch (e) {
+        // decode ব্যর্থ হলেও move নিজে সফল হয়েছে — cache miss হলে পরের
+        // ওপেনে স্বাভাবিকভাবেই network থেকে আনবে, কোনো ক্ষতি নেই
+      }
+    }
+    moved.push({ oldPath: f.path, newPath });
+  }
+
+  if (duplicated.length || failed.length) {
+    let msg = "";
+    if (moved.length) msg += `${moved.length} of ${filesToMove.length} file(s) moved successfully.\n\n`;
+    if (duplicated.length) {
+      msg += `These were copied to the new location but the old copy could NOT be removed — please delete the old copy manually:\n${duplicated.map((d) => d.oldPath).join("\n")}\n\n`;
+    }
+    if (failed.length) {
+      msg += `These failed to move (unchanged, still in the old location):\n${failed.join("\n")}`;
+    }
+    alert(msg.trim());
   }
 
   await loadFileTree();
@@ -1802,6 +1834,10 @@ function highlightMatch(text, matchedIndices) {
 
 function openQuickSwitcher() {
   if (!treeData) return; // ফাইল ট্রি এখনো লোড হয়নি
+  // অন্য কোনো মোডাল (rename/new-file, settings, delete-confirm) আগে
+  // থেকে খোলা থাকলে তার উপর quick switcher স্ট্যাক করা হবে না — আগে
+  // এই চেক কোথাও ছিল না।
+  if (!modalOverlay.hidden || !settingsModalOverlay.hidden || !deleteConfirmOverlay.hidden) return;
   quickSwitcherOverlay.hidden = false;
   quickSwitcherInput.value = "";
   quickSwitcherInput.focus();
@@ -1915,6 +1951,8 @@ btnQuickSwitcher.addEventListener("click", openQuickSwitcher);
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
     e.preventDefault();
+    // openQuickSwitcher()-এর ভেতরেই অন্য মোডাল খোলা থাকলে no-op করে —
+    // তাই এখানে আলাদা করে চেক করার দরকার নেই, নিরাপদেই কিছু হবে না।
     if (quickSwitcherOverlay.hidden) {
       openQuickSwitcher();
     } else {

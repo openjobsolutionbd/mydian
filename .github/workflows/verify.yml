@@ -1,0 +1,38 @@
+name: Verify
+
+# প্রতিবার GitHub-এ push হলে GitHub-এর নিজের সার্ভারে স্বয়ংক্রিয়ভাবে
+# scripts/verify.py চলে — এটা Claude যে চেক লোকালি চালায় তারই একটা
+# স্বাধীন দ্বিতীয় স্তর। Claude কোনো কারণে (ভুলে/স্কিপ করে) push করার
+# আগে চেক না চালালেও, এখানে GitHub নিজেই সেটা ধরে ফেলবে এবং এই পাতায়
+# (repo-র "Actions" ট্যাব) লাল ❌ দেখাবে।
+#
+# এটা লাইভ সাইট deploy হওয়া আটকায় না (Cloudflare Pages সরাসরি push
+# শুনে deploy করে, এই workflow-এর ফলাফলের ওপর নির্ভর করে না) — কিন্তু
+# একটা স্বাধীন, নির্ভরযোগ্য "দ্বিতীয় চোখ" হিসেবে কাজ করে।
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ESLint
+        run: npm install
+
+      - name: Install PyYAML (for config validation)
+        run: pip install pyyaml
+
+      - name: Run verify.py
+        run: python3 scripts/verify.py
