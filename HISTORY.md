@@ -10,6 +10,16 @@
 
 ## পুরনো "সর্বশেষ অবস্থা" changelog এন্ট্রি (কালানুক্রমে, নতুন থেকে পুরনো)
 
+**commit (২০২৬-০৮-১৫):** নোট প্রথমবার (cache-এ নেই) খুললে
+network fetch শেষ না হওয়া পর্যন্ত `cmHost` খালি থাকত — মনে হতো অ্যাপ
+আটকে গেছে (ইউজার এটাকে "বিরক্তিকর" বলেছিলেন)। `openTextFile()`-এ
+cached/preloaded/pendingOutbox — কোনোটাই না পাওয়া গেলে fetch শুরুর
+ঠিক আগে `cmHost.innerHTML`-এ ছোট "Loading…" ইঙ্গিত বসানো হয়, আর
+`createEditor()` কল করার ঠিক আগে সেটা clear করা হয় (নতুন
+`.editor-loading` CSS ক্লাস)। শুধু প্রথমবার-খোলার প্রকৃত network-wait
+কেসেই দেখায় — cached/preloaded/pendingOutbox পথগুলো তাৎক্ষণিক বলে
+সেখানে দরকার নেই।
+
 **commit (২০২৬-০৮-১৪):** `worker/worker.js`-এ CORS সংকুচিত করা
 হয়েছে — ইউজারকে জিজ্ঞেস করে অনুমতি নিয়ে (বাগ-হান্টে পাওয়া, সরাসরি
 বিপজ্জনক না কিন্তু defense-in-depth)। আগে `corsHeaders()` request-এ

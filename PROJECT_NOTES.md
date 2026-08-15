@@ -26,7 +26,30 @@
 
 ## ০. সর্বশেষ অবস্থা
 
-**সর্বশেষ commit (২০২৬-০৮-১৫): আরেকটা "দুই মোডাল একসাথে খোলা থাকা" বাগ
+**সর্বশেষ commit (২০২৬-০৮-১৫):** "দুই মোডাল stack" বাগের মূল কারণ
+(root cause) ঠিক করা হলো — আগের কয়েকটা ফিক্স (Error Log vs Settings,
+Quick Switcher-এর প্রথম ফিক্স) প্রতিটাই এক-একটা নির্দিষ্ট জোড়ার জন্য
+আলাদা প্যাচ ছিল, যেটা প্যাটার্ন হিসেবেই ভঙ্গুর — নতুন মোডাল যোগ হলে
+পুরনো চেক-লিস্ট stale হয়ে যায় (ঠিক যেমনটা Error Log যোগ হওয়ার সময়
+হয়েছিল)। যাচাই করে দেখা গেছে **এই একই ফাঁক তখনো ছিল**:
+`openQuickSwitcher()`-এর guard-এ `modalOverlay`/`settingsModalOverlay`/
+`deleteConfirmOverlay` হাতে করে লেখা ছিল, কিন্তু নতুন `errorLogOverlay`
+সেই লিস্টে যোগ হয়নি — তাই Error Log মোডাল খোলা অবস্থায় Ctrl+K চাপলে
+তার উপর Quick Switcher আবার স্ট্যাক হয়ে যেত।
+- প্রতিটা মোডাল একই `.modal-overlay` ক্লাস শেয়ার করে বলে এখন একটা
+  শেয়ার্ড `closeOtherModals(exceptOverlay)` হেল্পার বসানো হয়েছে —
+  `document.querySelectorAll(".modal-overlay:not([hidden])")` দিয়ে
+  খোলা মোডাল খুঁজে বন্ধ করে দেয়। `openModal()`, `openDeleteConfirm()`,
+  `btnSettings` click, `settingsViewErrors` click — এই ৪ জায়গার
+  হাতে-লেখা নির্দিষ্ট-মোডাল-বন্ধ-করা কোড সরিয়ে এই একটা হেল্পারে
+  একত্র করা হয়েছে। `openQuickSwitcher()`-এও একই generic query (তবে
+  বন্ধ করা না, শুধু "অন্য কিছু খোলা থাকলে no-op" আচরণ, যাতে টাইপ করা
+  অবস্থায় ভুলবশত Ctrl+K চাপলে সেই ইনপুট হারিয়ে না যায়)।
+- **এখন থেকে নতুন কোনো মোডাল যোগ হলে এই কোনো ফাংশন ছোঁয়ার দরকার
+  নেই** — `.modal-overlay` ক্লাস দিলেই স্বয়ংক্রিয়ভাবে বাকি সবার
+  stacking-প্রোটেকশনে অন্তর্ভুক্ত হয়ে যাবে।
+
+**তার আগের commit (২০২৬-০৮-১৫): আরেকটা "দুই মোডাল একসাথে খোলা থাকা" বাগ
 ফিক্স (Error Log মোডাল)।** ইউজারের অনুরোধে ("পরের বাগ খুঁজ") অ্যাপ
 রিভিউ করে পাওয়া — Settings-এ "View Error Log" ক্লিক করলে settings
 মোডাল বন্ধ না করেই error log মোডাল খুলত, ফলে দুটো `.modal-overlay`
@@ -52,16 +75,6 @@ trim()-এর edge case-ও যাচাই করা হয়েছে, ঝু
 (rate-limit-এর KV read-then-write-এ তাত্ত্বিক race condition আছে,
 কিন্তু per-attempt 800ms delay-এর কারণে বাস্তবে low-risk — ঠিক করা
 হয়নি, শুধু নোট রাখা হলো)।
-
-**তার আগের commit (২০২৬-০৮-১৫):** নোট প্রথমবার (cache-এ নেই) খুললে
-network fetch শেষ না হওয়া পর্যন্ত `cmHost` খালি থাকত — মনে হতো অ্যাপ
-আটকে গেছে (ইউজার এটাকে "বিরক্তিকর" বলেছিলেন)। `openTextFile()`-এ
-cached/preloaded/pendingOutbox — কোনোটাই না পাওয়া গেলে fetch শুরুর
-ঠিক আগে `cmHost.innerHTML`-এ ছোট "Loading…" ইঙ্গিত বসানো হয়, আর
-`createEditor()` কল করার ঠিক আগে সেটা clear করা হয় (নতুন
-`.editor-loading` CSS ক্লাস)। শুধু প্রথমবার-খোলার প্রকৃত network-wait
-কেসেই দেখায় — cached/preloaded/pendingOutbox পথগুলো তাৎক্ষণিক বলে
-সেখানে দরকার নেই।
 
 *এই সেকশনে সবসময় সর্বশেষ ৩টা commit-এন্ট্রি রাখা হয় — তার বেশি জমলেই
 সবচেয়ে পুরনোটা(গুলো) `HISTORY.md`-এর "পুরনো সর্বশেষ অবস্থা" সেকশনের

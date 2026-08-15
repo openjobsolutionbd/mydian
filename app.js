@@ -1445,10 +1445,23 @@ function closeMobileSidebar() {
 // Modal (নতুন ফাইল/ফোল্ডার)
 // ============================================================
 
+// কোনো মোডাল খোলার আগে অন্য যেকোনো খোলা মোডাল বন্ধ করে দেয় — দুটো
+// একসাথে stack হওয়া ঠেকাতে। আগে প্রতিটা open___() ফাংশনে নির্দিষ্ট করে
+// কয়েকটা মোডাল ভ্যারিয়েবল হাতে লেখা ছিল (যেমন শুধু
+// `settingsModalOverlay.hidden = true`), যেটা নতুন মোডাল যোগ হলে (যেমন
+// পরে error-log-overlay) stale হয়ে যেত — ঠিক এই কারণেই quick
+// switcher-এ একটা বাগ হয়েছিল (Ctrl+K চাপলে Error Log-এর উপর স্ট্যাক
+// হয়ে যেত, কারণ সেই মোডালের কথা লিস্টে ছিল না)। সব মোডাল একই
+// `.modal-overlay` ক্লাস শেয়ার করে বলে এখন generic query দিয়ে খোঁজা
+// হচ্ছে — ভবিষ্যতে নতুন মোডাল যোগ হলে এই ফাংশন না ছুঁয়েও কাজ করবে।
+function closeOtherModals(exceptOverlay) {
+  document.querySelectorAll(".modal-overlay:not([hidden])").forEach((el) => {
+    if (el !== exceptOverlay) el.hidden = true;
+  });
+}
+
 function openModal({ title, placeholder, hint, initialValue = "", onConfirm }) {
-  // দুটো আলাদা মোডাল (নতুন ফাইল/ফোল্ডার আর সেটিংস) একই সময়ে খোলা থাকলে
-  // ওভারল্যাপ করে stack হয়ে যেত — একটা খোলার সময় অন্যটা বন্ধ করে দেওয়া হচ্ছে
-  settingsModalOverlay.hidden = true;
+  closeOtherModals(modalOverlay);
   modalTitle.textContent = title;
   modalInput.placeholder = placeholder || "";
   modalHint.textContent = hint || "";
@@ -1537,8 +1550,7 @@ btnThemeToggle.addEventListener("click", toggleTheme);
 // থেকে যেত, ইউজার চাইলেও বের হতে পারতেন না।
 
 btnSettings.addEventListener("click", () => {
-  // এখানেও একই কারণে অন্য মোডালটা বন্ধ করে দেওয়া হচ্ছে
-  closeModal();
+  closeOtherModals(settingsModalOverlay);
   const cfg = api.getConfig();
   settingsVaultInfo.textContent = `Vault: ${cfg.owner}/${cfg.repo} (${cfg.branch || "main"})`;
   settingsModalOverlay.hidden = false;
@@ -1643,12 +1655,7 @@ async function renderErrorLog() {
 }
 
 settingsViewErrors.addEventListener("click", async () => {
-  // অন্য যেকোনো মোডাল খোলার সময় আগেরটা বন্ধ করে দেওয়ার নিয়ম এখানে মিস
-  // হয়ে গিয়েছিল — settings মোডাল খোলা রেখেই error log মোডাল খুলে যেত,
-  // দুটো overlay (একই z-index, একই position:fixed) একসাথে স্ট্যাক হয়ে
-  // যেত। openModal()/openDeleteConfirm()-এর মতোই আগে settings বন্ধ করে
-  // তারপর error log খোলা হচ্ছে।
-  closeSettingsModal();
+  closeOtherModals(errorLogOverlay);
   errorLogOverlay.hidden = false;
   await renderErrorLog();
 });
@@ -1679,9 +1686,7 @@ let pendingDeleteAction = null;
 let deleteVerifying = false;
 
 function openDeleteConfirm({ message, onConfirm }) {
-  // অন্য কোনো মোডাল খোলা থাকলে বন্ধ করে দেওয়া হচ্ছে — একসাথে দুটো stack হওয়া ঠেকাতে
-  closeModal();
-  closeSettingsModal();
+  closeOtherModals(deleteConfirmOverlay);
   deleteConfirmMessage.textContent = message;
   deleteConfirmError.hidden = true;
   deleteConfirmPin.value = "";
@@ -1857,10 +1862,17 @@ function highlightMatch(text, matchedIndices) {
 
 function openQuickSwitcher() {
   if (!treeData) return; // ফাইল ট্রি এখনো লোড হয়নি
-  // অন্য কোনো মোডাল (rename/new-file, settings, delete-confirm) আগে
-  // থেকে খোলা থাকলে তার উপর quick switcher স্ট্যাক করা হবে না — আগে
-  // এই চেক কোথাও ছিল না।
-  if (!modalOverlay.hidden || !settingsModalOverlay.hidden || !deleteConfirmOverlay.hidden) return;
+  // অন্য কোনো মোডাল আগে থেকে খোলা থাকলে তার উপর quick switcher স্ট্যাক
+  // করা হবে না। আগে এখানে নির্দিষ্ট কয়েকটা মোডাল ভ্যারিয়েবল হাতে করে
+  // লিস্ট করা ছিল (modalOverlay/settingsModalOverlay/deleteConfirmOverlay)
+  // — কিন্তু পরে error-log-overlay যোগ হওয়ার সময় এই লিস্টটা আপডেট করা
+  // হয়নি, ফলে Error Log মোডাল খোলা অবস্থায় Ctrl+K চাপলে আবার একই বাগ
+  // (দুটো মোডাল স্ট্যাক) ফিরে এসেছিল। প্রতিটা মোডাল-ই একই `.modal-overlay`
+  // ক্লাস শেয়ার করে, তাই এখন সেটা দিয়েই সরাসরি খুঁজে বের করা হচ্ছে — এর
+  // পর নতুন কোনো মোডাল যোগ হলেও (এই ফাংশন না ছুঁয়েও) স্বয়ংক্রিয়ভাবে
+  // এখানে ধরা পড়বে।
+  const anyModalOpen = document.querySelector(".modal-overlay:not([hidden])");
+  if (anyModalOpen) return;
   quickSwitcherOverlay.hidden = false;
   quickSwitcherInput.value = "";
   quickSwitcherInput.focus();
