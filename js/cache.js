@@ -51,6 +51,29 @@ function openDb() {
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error || new Error("Could not open IndexedDB"));
+    // অন্য কোনো ট্যাবে পুরনো ভার্সনের DB কানেকশন খোলা থাকলে upgrade
+    // আটকে যেতে পারে (blocked) — এই অবস্থায় onsuccess/onerror কোনোটাই
+    // ফায়ার করে না, handler ছাড়া `await openDb()` চিরকাল ঝুলে থাকতে
+    // পারত (ইউজার হয়তো Mydian দুই ট্যাবে খুলে রাখলে)। কিছুক্ষণ অপেক্ষা
+    // করে তারপরও আটকে থাকলে reject করে দেওয়া হচ্ছে, যাতে অ্যাপ
+    // network-only মোডে fallback করতে পারে, চিরকাল আটকে না থেকে।
+    req.onblocked = () => {
+      setTimeout(() => {
+        reject(new Error("IndexedDB upgrade blocked by another open tab"));
+      }, 3000);
+    };
+  });
+  // openDb() একবার ব্যর্থ হলে dbPromise-কে (module-level singleton
+  // cache) চিরকালের জন্য "রিজেক্টেড" অবস্থায় আটকে রাখা ঠিক না — এই
+  // bug-টা আগে ছিল: ব্যর্থতা প্রায়ই transient (সাময়িক) হয় (যেমন উপরের
+  // blocked-tab বন্ধ হওয়া, বা quota সাময়িকভাবে সমস্যা করা), কিন্তু
+  // dbPromise কখনো রিসেট না হওয়ায় একবার ব্যর্থ হলে সেশনের বাকি পুরো
+  // সময় সব cache ফাংশন (অফলাইন outbox queue করা সহ) স্থায়ীভাবে
+  // অকার্যকর থেকে যেত — এমনকি আসল কারণটা চলে যাওয়ার পরও। এখন ব্যর্থ
+  // হলে dbPromise রিসেট করা হচ্ছে, পরের কোনো cache কল আবার নতুন করে
+  // খোলার চেষ্টা করবে।
+  dbPromise.catch(() => {
+    dbPromise = null;
   });
   return dbPromise;
 }
