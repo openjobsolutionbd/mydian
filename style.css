@@ -329,6 +329,16 @@ input {
   text-align: center;
 }
 
+/* প্রথমবার (cache-এ নেই এমন) কোনো নোট খুললে network fetch শেষ না হওয়া
+   পর্যন্ত আগে খালি স্ক্রিন দেখাত — মনে হতো অ্যাপ আটকে গেছে। এখন এই
+   ছোট্ট ইঙ্গিতটা দেখানো হয় যতক্ষণ fetch চলে (cached/preloaded/pending
+   outbox থাকলে এটা কখনো দেখানোর দরকারই হয় না, ওগুলো তাৎক্ষণিক)। */
+.editor-loading {
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .tree-node { user-select: none; }
 
 .tree-row {

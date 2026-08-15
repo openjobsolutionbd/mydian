@@ -474,6 +474,13 @@ async function openTextFile(node, type, preloaded) {
       return;
     }
 
+    if (!shownFromCache) {
+      // ক্যাশে/outbox-এ কিছুই পাওয়া যায়নি — এই মুহূর্ত থেকে নেটওয়ার্ক
+      // fetch শেষ না হওয়া পর্যন্ত খালি স্ক্রিন দেখানোর বদলে একটা সংক্ষিপ্ত
+      // ইঙ্গিত দেখানো হচ্ছে, যাতে মনে না হয় অ্যাপ আটকে গেছে।
+      cmHost.innerHTML = `<div class="editor-loading">Loading…</div>`;
+    }
+
     const fresh = await api.fetchFile(node.path);
     cache.setFile(node.path, fresh);
 
@@ -481,7 +488,12 @@ async function openTextFile(node, type, preloaded) {
     if (!currentFile || currentFile.path !== node.path) return;
 
     if (!shownFromCache) {
-      // ক্যাশে কিছুই ছিল না — এই প্রথমবার GitHub থেকেই দেখানো হচ্ছে
+      // ক্যাশে কিছুই ছিল না — এই প্রথমবার GitHub থেকেই দেখানো হচ্ছে।
+      // createEditor() cmHost-এর ভেতরে নিজের DOM যোগ করে, কিন্তু ওপরে
+      // বসানো "Loading…" ইঙ্গিতটা নিজে থেকে সরায় না (সেটা editor.js-এর
+      // দায়িত্ব না) — তাই createEditor কল করার ঠিক আগে ম্যানুয়ালি
+      // cmHost খালি করে দেওয়া হচ্ছে, নাহলে দুটো একসাথে দেখা যেত।
+      cmHost.innerHTML = "";
       currentFile = { path: node.path, sha: fresh.sha, type };
       editorView = createEditor({
         parent: cmHost,
