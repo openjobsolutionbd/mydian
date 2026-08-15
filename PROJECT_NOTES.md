@@ -63,18 +63,6 @@ cached/preloaded/pendingOutbox — কোনোটাই না পাওয়�
 কেসেই দেখায় — cached/preloaded/pendingOutbox পথগুলো তাৎক্ষণিক বলে
 সেখানে দরকার নেই।
 
-**তার আগের commit (২০২৬-০৮-১৪):** `worker/worker.js`-এ CORS সংকুচিত করা
-হয়েছে — ইউজারকে জিজ্ঞেস করে অনুমতি নিয়ে (বাগ-হান্টে পাওয়া, সরাসরি
-বিপজ্জনক না কিন্তু defense-in-depth)। আগে `corsHeaders()` request-এ
-আসা যেকোনো `Origin` হুবহু ফেরত দিত (`Access-Control-Allow-Origin: <যা
-আসছে তাই>`) — এখন `isAllowedOrigin()` চেক করে, শুধু allowlist-এ থাকা
-origin-ই header পায় (`isAllowedRepo()`-এর মতোই `env.ALLOWED_ORIGINS`
-override সহ প্যাটার্ন, ডিফল্ট `https://mydian-tei.pages.dev`)। ৫টা
-কেস (বৈধ/ক্ষতিকর/নেই/override/override-এ না-মেলা origin) `node -e`
-দিয়ে isolated টেস্ট করে নিশ্চিত হয়ে তারপর wire করা হয়েছে। **⚠️ এই
-পরিবর্তন কার্যকর হতে `wrangler deploy` লাগবে** (GitHub push worker
-auto-deploy করে না)।
-
 *এই সেকশনে সবসময় সর্বশেষ ৩টা commit-এন্ট্রি রাখা হয় — তার বেশি জমলেই
 সবচেয়ে পুরনোটা(গুলো) `HISTORY.md`-এর "পুরনো সর্বশেষ অবস্থা" সেকশনের
 একদম উপরে (নতুন-থেকে-পুরনো ক্রম বজায় রেখে) সরিয়ে দিতে হবে। উদ্দেশ্য:

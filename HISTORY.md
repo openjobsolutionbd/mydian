@@ -10,6 +10,18 @@
 
 ## পুরনো "সর্বশেষ অবস্থা" changelog এন্ট্রি (কালানুক্রমে, নতুন থেকে পুরনো)
 
+**commit (২০২৬-০৮-১৪):** `worker/worker.js`-এ CORS সংকুচিত করা
+হয়েছে — ইউজারকে জিজ্ঞেস করে অনুমতি নিয়ে (বাগ-হান্টে পাওয়া, সরাসরি
+বিপজ্জনক না কিন্তু defense-in-depth)। আগে `corsHeaders()` request-এ
+আসা যেকোনো `Origin` হুবহু ফেরত দিত (`Access-Control-Allow-Origin: <যা
+আসছে তাই>`) — এখন `isAllowedOrigin()` চেক করে, শুধু allowlist-এ থাকা
+origin-ই header পায় (`isAllowedRepo()`-এর মতোই `env.ALLOWED_ORIGINS`
+override সহ প্যাটার্ন, ডিফল্ট `https://mydian-tei.pages.dev`)। ৫টা
+কেস (বৈধ/ক্ষতিকর/নেই/override/override-এ না-মেলা origin) `node -e`
+দিয়ে isolated টেস্ট করে নিশ্চিত হয়ে তারপর wire করা হয়েছে। **⚠️ এই
+পরিবর্তন কার্যকর হতে `wrangler deploy` লাগবে** (GitHub push worker
+auto-deploy করে না)।
+
 **commit (২০২৬-০৮-১৪): বিদ্যমান ফিচার পালিশ/নিখুঁত করা (নতুন
 ফিচার না)।** ইউজারের অনুরোধে ("আর ফিচার বাড়াবো না, যা আছে তা নিখুঁত
 করো") পুরো অ্যাপ ঘুরে দেখে ৩টা ছোট কিন্তু বাস্তব সমস্যা ঠিক করা হয়েছে:
