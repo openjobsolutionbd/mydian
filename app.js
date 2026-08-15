@@ -189,6 +189,12 @@ async function loadFileTree() {
     // তালিকার সাথে না মেলা পুরনো ক্যাশ এন্ট্রি (ডিলিট/রিনেম হয়ে যাওয়া
     // ফাইলের) স্বয়ংক্রিয়ভাবে মুছে দেওয়া হয় — ম্যানুয়ালি কিছু করতে হয় না
     cache.pruneToPaths(flatFiles.map((f) => f.path));
+    // ব্যাকগ্রাউন্ডে সব নোটের কনটেন্ট আগে থেকেই ক্যাশে নিয়ে আসা হচ্ছে —
+    // এর ফলে অ্যাপ খোলার পরপরই যেকোনো ফাইলে ক্লিক করলে দ্বিতীয়বার ক্লিকের
+    // মতোই তাৎক্ষণিক খুলবে (ইউজার লক্ষ্য করেছিলেন প্রথমবার ক্লিকে দেরি
+    // হয়, দ্বিতীয়বার তাড়াতাড়ি হয় — এই prefetch সেই ফারাকটাই দূর করে)।
+    // fire-and-forget: এটার জন্য অপেক্ষা করা হয় না, ব্যর্থ হলেও চুপচাপ।
+    prefetchAllFiles(flatFiles);
   } catch (err) {
     console.error(err);
     if (cachedFlat && cachedFlat.length) {
@@ -200,6 +206,47 @@ async function loadFileTree() {
       fileTreeEl.innerHTML = `<div class="tree-empty">Could not load.<br>Try refreshing, or check that the repo/PIN are correct.</div>`;
     }
   }
+}
+
+// ============================================================
+// ব্যাকগ্রাউন্ড prefetch — অ্যাপ খোলার পরপরই সব নোটের কনটেন্ট আগে থেকে
+// ক্যাশে নিয়ে আসা, যাতে প্রথমবার কোনো ফাইলে ক্লিক করলেও দ্বিতীয়বারের
+// মতোই তাৎক্ষণিক খোলে — নেটওয়ার্ক-রাউন্ডট্রিপের জন্য অপেক্ষা করতে না
+// হয়। ছবি/PDF prefetch করা হয় না (সাধারণত বড় এবং তুলনামূলক কম-দরকারি,
+// শুধু নোট/মার্কডাউন-ই মূল কনটেন্ট যা ইউজার বারবার খোলেন)।
+// ============================================================
+
+const PREFETCH_CONCURRENCY = 3; // একসাথে সর্বোচ্চ এতগুলো fetch — পুরো
+// নেটওয়ার্ক/API-কে একবারে ভাসিয়ে না দিয়ে, তবু যথেষ্ট দ্রুত
+
+async function prefetchAllFiles(flatFiles) {
+  const textFiles = flatFiles.filter((f) => !isImage(f.name) && !isPdf(f.name));
+  let index = 0;
+
+  async function worker() {
+    while (index < textFiles.length) {
+      const file = textFiles[index++];
+      try {
+        // ইতিমধ্যে ক্যাশে থাকা কনটেন্টের sha যদি GitHub-এর বর্তমান
+        // sha-র সাথে মিলে যায়, তার মানে ফাইলটা অপরিবর্তিত — আবার
+        // নেটওয়ার্ক কল করার দরকার নেই, স্কিপ করা হচ্ছে। এই চেকের
+        // কারণেই দ্বিতীয়বার অ্যাপ খোলা থেকে prefetch প্রায় কিছুই
+        // করে না (সব ইতিমধ্যে cache-এ), শুধু প্রথমবার বা নতুন/বদলে
+        // যাওয়া ফাইলের জন্যই আসল নেটওয়ার্ক কল হয়।
+        const cached = await cache.getFile(file.path);
+        if (cached && cached.sha === file.sha) continue;
+        const fresh = await api.fetchFile(file.path);
+        await cache.setFile(file.path, fresh);
+      } catch (err) {
+        // best-effort — একটা ফাইল প্রিফেচ ব্যর্থ হলেও (নেট সমস্যা,
+        // rate limit ইত্যাদি) বাকিগুলো চলতে থাকে, আর যেই ফাইলটা ব্যর্থ
+        // হলো সেটা ইউজার সরাসরি ক্লিক করলে তখন normal fetch পথেই খুলবে
+      }
+    }
+  }
+
+  const workers = Array.from({ length: PREFETCH_CONCURRENCY }, () => worker());
+  await Promise.all(workers);
 }
 
 function renderTree() {

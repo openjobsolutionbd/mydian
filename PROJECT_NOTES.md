@@ -61,6 +61,28 @@ Playwright দিয়ে reproduce করে নিশ্চিত হয়�
 কল হয়। সাথে error log মোডালে Escape দিয়ে বন্ধ করার সাপোর্টও যোগ করা
 হলো। নতুন কোনো ফিচার না, শুধু বাগ ফিক্স।
 
+**তার আগের commit (২০২৬-০৮-১৫):** সব নোটের কনটেন্ট background prefetch
+যোগ হয়েছে — ইউজার লক্ষ্য করেছিলেন প্রথমবার কোনো নোটে ক্লিক করলে দেরি
+হয়, দ্বিতীয়বার তাড়াতাড়ি হয় (cache-first architecture ঠিকই কাজ করছিল,
+সমস্যা ছিল প্রথমবারের genuine network round-trip-এ)।
+- `loadFileTree()`-এ `api.fetchTree()` সফল হওয়ার পরপরই নতুন
+  `prefetchAllFiles(flatFiles)` কল হয় (fire-and-forget, await করা হয়
+  না) — `PREFETCH_CONCURRENCY=3` দিয়ে worker-pool প্যাটার্নে সব
+  markdown/text ফাইলের কনটেন্ট cache-এ নিয়ে আসে (ছবি/PDF বাদ,
+  `isImage`/`isPdf` দিয়ে ফিল্টার করে)।
+- প্রতিটা ফাইলের জন্য আগে `cache.getFile(path)` চেক করে — cached sha
+  আর tree-এর বর্তমান sha মিললে skip করে (নেটওয়ার্ক কল ছাড়াই) — এই
+  কারণে দ্বিতীয়বার অ্যাপ খোলা থেকে prefetch প্রায় কিছুই করে না (সব
+  আগে থেকেই cache-এ), শুধু নতুন/বদলে যাওয়া ফাইলেই আসল fetch হয়।
+- একটা ফাইল fetch ব্যর্থ হলে (নেট সমস্যা, rate limit) চুপচাপ স্কিপ করে
+  বাকিগুলো চালিয়ে যায় — best-effort, কখনো throw করে না, ইউজার সেই
+  ফাইলে সরাসরি ক্লিক করলে normal fetch পথেই খুলবে।
+- worker-pool concurrency লজিক নতুন হওয়ায় (এই কোডবেসে প্রথমবার এই
+  প্যাটার্ন) `node -e`-এ isolated mock টেস্ট করা হয়েছে ১০টা ফাইলের
+  সিমুলেশনে (কিছু cache-এ already, একটা ইচ্ছাকৃত fetch-failure) —
+  concurrency সীমা, skip-লজিক, আর error-isolation তিনটাই সঠিক প্রমাণিত
+  হওয়ার পরই মূল কোডে বসানো হয়েছে।
+
 **তার আগের commit (২০২৬-০৮-১৫):** ইউজারের নির্দেশে ("বাগ খুঁজ pin
 সম্পর্কিত") PIN-সংশ্লিষ্ট কোড (login flow, delete-confirm PIN flow,
 worker-এর rate-limit লজিক) ঘুরে দেখা হয়েছে। পাওয়া বাগ: `js/api.js`-এর
