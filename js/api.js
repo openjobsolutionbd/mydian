@@ -63,7 +63,7 @@ export async function login(pin) {
     // আগে দুটোই একই "Wrong PIN" বার্তা হিসেবে দেখানো হতো (দেখুন
     // submitDeleteConfirm-এর পুরনো কোড, app.js), যেটা অফলাইনে থাকা
     // ইউজারকে বিভ্রান্ত করত।
-    throw new Error("নেট সংযোগ পাওয়া যায়নি — সংযোগ ঠিক করে আবার চেষ্টা করুন", { cause: networkErr });
+    throw new Error("No network connection — check your connection and try again", { cause: networkErr });
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
