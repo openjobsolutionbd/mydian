@@ -1561,6 +1561,11 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !settingsModalOverlay.hidden) {
     closeSettingsModal();
   }
+  // error log মোডালেও একই ফাঁক ছিল (পরে যোগ হওয়া ফিচার, একই প্যাটার্ন
+  // মিস হয়ে গিয়েছিল) — এখন settings-এর মতোই Escape কাজ করে
+  if (e.key === "Escape" && !errorLogOverlay.hidden) {
+    errorLogOverlay.hidden = true;
+  }
 });
 
 settingsLogout.addEventListener("click", () => {
@@ -1638,6 +1643,12 @@ async function renderErrorLog() {
 }
 
 settingsViewErrors.addEventListener("click", async () => {
+  // অন্য যেকোনো মোডাল খোলার সময় আগেরটা বন্ধ করে দেওয়ার নিয়ম এখানে মিস
+  // হয়ে গিয়েছিল — settings মোডাল খোলা রেখেই error log মোডাল খুলে যেত,
+  // দুটো overlay (একই z-index, একই position:fixed) একসাথে স্ট্যাক হয়ে
+  // যেত। openModal()/openDeleteConfirm()-এর মতোই আগে settings বন্ধ করে
+  // তারপর error log খোলা হচ্ছে।
+  closeSettingsModal();
   errorLogOverlay.hidden = false;
   await renderErrorLog();
 });
