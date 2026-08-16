@@ -227,6 +227,18 @@ async function prefetchAllFiles(flatFiles) {
     while (index < textFiles.length) {
       const file = textFiles[index++];
       try {
+        // openTextFile()-এ আগে একবার এই একই ধরনের বাগ ধরা পড়েছিল আর
+        // ঠিক করা হয়েছিল: অফলাইনে করা এডিট এখনো GitHub-এ সিঙ্ক না
+        // হয়ে থাকলে (pending outbox entry), সেই এডিটটাই ফাইলের আসল
+        // সর্বশেষ কন্টেন্ট — network থেকে fresh fetch করে সেটা
+        // ওভাররাইট করা উচিত না, বিশেষ করে যদি এর মধ্যে GitHub-এ কেউ
+        // (বা অন্য কোনো ডিভাইস) একই ফাইল বদলে ফেলে থাকে, তাহলে সেই
+        // conflicting ভার্সন দিয়ে local cache-এ থাকা pending edit-এর
+        // অপ্টিমিস্টিক কপি নীরবে চাপা পড়ে যেত। `prefetchAllFiles()`
+        // নতুন যোগ হওয়া ফাংশন হওয়ায় সেই আগের ফিক্স এখানে প্রয়োগ হয়নি
+        // — এখন pending outbox থাকলে পুরোপুরি স্কিপ করা হচ্ছে।
+        const pendingOutbox = await cache.getOutboxEntry(file.path);
+        if (pendingOutbox) continue;
         // ইতিমধ্যে ক্যাশে থাকা কনটেন্টের sha যদি GitHub-এর বর্তমান
         // sha-র সাথে মিলে যায়, তার মানে ফাইলটা অপরিবর্তিত — আবার
         // নেটওয়ার্ক কল করার দরকার নেই, স্কিপ করা হচ্ছে। এই চেকের
