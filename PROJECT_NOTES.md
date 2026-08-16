@@ -26,7 +26,24 @@
 
 ## ০. সর্বশেষ অবস্থা
 
-**সর্বশেষ commit (২০২৬-০৮-১৫):** নতুন `prefetchAllFiles()`-এ (background
+**সর্বশেষ commit (২০২৬-০৮-১৬):** ইউজারের নির্দেশে ("আরেকটা বাগ খুঁজে
+বের কর") `moveNode()`/`renameFile()`-এর pending-outbox হ্যান্ডলিং ঘুরে
+দেখা হয়েছে। পাওয়া বাগ: দুটো ফাংশনই `pendingOutbox` পড়ে (offline edit
+থাকলে) সেটার content নতুন path-এ পাঠায় ঠিকই, কিন্তু move/rename সফল
+হওয়ার পর পুরনো path-এর outbox entry নিজে **কখনো clear করা হয় না**
+(`cache.clearOutboxEntry()` কোথাও কল হয় না)। `renameFile()`-এর কমেন্টে
+এই ঝুঁকিটা আগে থেকেই বর্ণনা করা ছিল ("outbox entry-টাও চিরকালের জন্য
+অনাথ হয়ে যেত") — কিন্তু আসল fix (content ব্যবহার) শুধু ডেটা-হারানো অংশটাই
+সমাধান করেছিল, orphaned-entry অংশটা বাদ পড়ে গিয়েছিল। ফলাফল: পরে
+`flushOutbox()` সেই stale entry নিয়ে GitHub-এ ইতিমধ্যে-ডিলিট-হওয়া
+path-এ PUT পাঠানোর চেষ্টা করত, ব্যর্থ হয়ে বিভ্রান্তিকর "changed
+elsewhere" এরর অ্যালার্ট দেখাত — যদিও move/rename আসলে সফলই হয়েছিল।
+দুই জায়গাতেই fix: `cache.deleteFile(oldPath)`-এর ঠিক পরে
+`if (pendingOutbox) cache.clearOutboxEntry(oldPath);` যোগ করা হয়েছে
+(শুধু সফল move/rename-এর কেসেই — delete ব্যর্থ/duplicate কেসে না,
+কারণ তখন পুরনো path GitHub-এ এখনো বৈধভাবে আছে)।
+
+**তার আগের commit (২০২৬-০৮-১৫):** নতুন `prefetchAllFiles()`-এ (background
 prefetch ফিচার, আগের commit-এই যোগ হয়েছিল) একই bug class ফিরে এসেছিল
 যেটা আগে `openTextFile()`-এ একবার ঠিক করা হয়েছিল — অফলাইনে করা এডিট
 এখনো GitHub-এ সিঙ্ক না হয়ে থাকলে (pending outbox entry), prefetch
@@ -62,29 +79,6 @@ reliability বাগ ঠিক করা হলো — এবারও এক�
 - মক IndexedDB দিয়ে isolated টেস্ট করে যাচাই করা হয়েছে: ব্যর্থতার পর
   retry হয় (নতুন attempt), সফল হওয়ার পর ঠিকভাবে cache/reuse হয় (নতুন
   attempt হয় না) — `/tmp`-এ, committed না।
-
-**তার আগের commit (২০২৬-০৮-১৫):** "দুই মোডাল stack" বাগের মূল কারণ
-(root cause) ঠিক করা হলো — আগের কয়েকটা ফিক্স (Error Log vs Settings,
-Quick Switcher-এর প্রথম ফিক্স) প্রতিটাই এক-একটা নির্দিষ্ট জোড়ার জন্য
-আলাদা প্যাচ ছিল, যেটা প্যাটার্ন হিসেবেই ভঙ্গুর — নতুন মোডাল যোগ হলে
-পুরনো চেক-লিস্ট stale হয়ে যায় (ঠিক যেমনটা Error Log যোগ হওয়ার সময়
-হয়েছিল)। যাচাই করে দেখা গেছে **এই একই ফাঁক তখনো ছিল**:
-`openQuickSwitcher()`-এর guard-এ `modalOverlay`/`settingsModalOverlay`/
-`deleteConfirmOverlay` হাতে করে লেখা ছিল, কিন্তু নতুন `errorLogOverlay`
-সেই লিস্টে যোগ হয়নি — তাই Error Log মোডাল খোলা অবস্থায় Ctrl+K চাপলে
-তার উপর Quick Switcher আবার স্ট্যাক হয়ে যেত।
-- প্রতিটা মোডাল একই `.modal-overlay` ক্লাস শেয়ার করে বলে এখন একটা
-  শেয়ার্ড `closeOtherModals(exceptOverlay)` হেল্পার বসানো হয়েছে —
-  `document.querySelectorAll(".modal-overlay:not([hidden])")` দিয়ে
-  খোলা মোডাল খুঁজে বন্ধ করে দেয়। `openModal()`, `openDeleteConfirm()`,
-  `btnSettings` click, `settingsViewErrors` click — এই ৪ জায়গার
-  হাতে-লেখা নির্দিষ্ট-মোডাল-বন্ধ-করা কোড সরিয়ে এই একটা হেল্পারে
-  একত্র করা হয়েছে। `openQuickSwitcher()`-এও একই generic query (তবে
-  বন্ধ করা না, শুধু "অন্য কিছু খোলা থাকলে no-op" আচরণ, যাতে টাইপ করা
-  অবস্থায় ভুলবশত Ctrl+K চাপলে সেই ইনপুট হারিয়ে না যায়)।
-- **এখন থেকে নতুন কোনো মোডাল যোগ হলে এই কোনো ফাংশন ছোঁয়ার দরকার
-  নেই** — `.modal-overlay` ক্লাস দিলেই স্বয়ংক্রিয়ভাবে বাকি সবার
-  stacking-প্রোটেকশনে অন্তর্ভুক্ত হয়ে যাবে।
 
 *এই সেকশনে সবসময় সর্বশেষ ৩টা commit-এন্ট্রি রাখা হয় — তার বেশি জমলেই
 সবচেয়ে পুরনোটা(গুলো) `HISTORY.md`-এর "পুরনো সর্বশেষ অবস্থা" সেকশনের

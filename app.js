@@ -996,6 +996,16 @@ async function renameFile(node, newName) {
   // বাইনারি ফাইল (ছবি/PDF) ক্যাশ করা হয় না বলে সেগুলোর জন্য শুধু পুরনো
   // এন্ট্রি মুছলেই যথেষ্ট।
   cache.deleteFile(node.path);
+  // pendingOutbox থাকলে সেটার content ইতিমধ্যে উপরের putFile()-এ
+  // newPath-এ পাঠানো হয়ে গেছে — কিন্তু পুরনো path-এর outbox entry নিজে
+  // থেকে মোছে না, আর flushOutbox() শুধু cache.getAllOutboxEntries()
+  // থেকে পাওয়া এন্ট্রি নিয়েই কাজ করে, rename() সেই লিস্ট touch করে না।
+  // এই entry মুছে না দিলে (৯৫৬-৯৫৭ লাইনের কমেন্টে এই ঝুঁকিটাই আগে থেকে
+  // লেখা ছিল, কিন্তু আসল clear() call বসানো বাদ পড়ে গিয়েছিল) পরে
+  // flushOutbox() পুরনো (এখন GitHub-এ ডিলিট হয়ে যাওয়া) path-এ PUT
+  // পাঠানোর চেষ্টা করত — সেটা ব্যর্থ হয়ে বিভ্রান্তিকর "changed
+  // elsewhere" এরর দেখাত, যদিও rename আসলে সফলই হয়েছিল।
+  if (pendingOutbox) cache.clearOutboxEntry(node.path);
   if (!isImage(newName) && !isPdf(newName)) {
     try {
       // pendingOutbox থাকলে সেটার content সরাসরি ব্যবহার করা হচ্ছে (আগেই
@@ -1345,6 +1355,17 @@ async function moveNode(node, targetFolder) {
     }
     if (!deleted) continue; // পুরনো কপি রয়ে গেছে — নিচের cache/moved আপডেট এড়িয়ে যাওয়া হচ্ছে, কারণ পুরনো path-এর cache entry এখনো বৈধ
     cache.deleteFile(f.path);
+    // pendingOutbox থাকলে সেটার কনটেন্ট ইতিমধ্যে newPath-এ putFile()
+    // দিয়ে পাঠানো হয়ে গেছে (উপরে) — কিন্তু পুরনো path-এর outbox entry
+    // নিজে থেকে মোছে না, কারণ flushOutbox() শুধু cache.getAllOutboxEntries()
+    // থেকে পাওয়া এন্ট্রি নিয়ে কাজ করে, moveNode() সেই লিস্ট touch করে না।
+    // এই entry মুছে না দিলে পরে flushOutbox() পুরনো (এখন GitHub-এ
+    // ডিলিট হয়ে যাওয়া) path-এ PUT পাঠানোর চেষ্টা করত — সেটা GitHub-এ
+    // conflict-এর মতো ব্যর্থ হয়ে ইউজারকে বিভ্রান্তিকর "changed elsewhere"
+    // এরর দেখাত, যদিও move আসলে সফলই হয়েছিল। (deleted না হলে/duplicate
+    // হলে এই clear করা হয় না — তখন পুরনো path GitHub-এ এখনো বৈধভাবে
+    // আছে, outbox entry তখনো প্রাসঙ্গিক।)
+    if (pendingOutbox) cache.clearOutboxEntry(f.path);
     if (!isImage(newPath) && !isPdf(newPath)) {
       try {
         const content = pendingOutbox ? pendingOutbox.content : api.decodeBase64Utf8(base64);
