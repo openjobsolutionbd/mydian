@@ -26,7 +26,31 @@
 
 ## ০. সর্বশেষ অবস্থা
 
-**সর্বশেষ commit (২০২৬-০৮-১৭):** `flushOutbox()`-এ একটা ডিজাইন বাগ ঠিক
+**সর্বশেষ commit (২০২৬-০৮-১৭):** `sw.js`-এর fetch handler-এ একটা
+reliability বাগ ঠিক করা হলো — এই ফাইলটা আগে শুধু `BUILD_ID`-এর জন্যই
+touch করা হয়েছিল, এবারই প্রথম পুরোটা গভীরভাবে পড়া হলো।
+- **সমস্যা:** app shell ফাইলের (index.html, style.css, app.js
+  ইত্যাদি) জন্য network-first কৌশল — network থেকে response এলেই
+  `response.ok` চেক না করে সরাসরি cache-এ বসিয়ে দেওয়া হতো। `fetch()`
+  শুধু genuine network failure-এ (অফলাইন, DNS ব্যর্থতা) reject করে —
+  HTTP error status (500/502/503, যেমন deploy চলাকালীন সাময়িক সার্ভার
+  সমস্যা) হলেও promise resolve-ই করে (`response.ok` শুধু false থাকে)।
+  ফলে একটা সাময়িক এরর response-ও "ভ্যালিড" শেল ফাইল হিসেবে cache-এ
+  স্থায়ীভাবে বসে যেতে পারত — এবং পরে network fail হয়ে `.catch()`-এ
+  fallback করার সময় (বা সরাসরি অফলাইন থাকলে) আসল অ্যাপ শেলের বদলে
+  সেই ভাঙা error page-ই দেখানো হতো, যতক্ষণ না পরের একটা সফল fetch
+  সেটা আবার ওভাররাইট করে।
+- **ফিক্স:** `if (response.ok)` চেক যোগ করে শুধু সফল (2xx) response-ই
+  cache-এ বসানো হচ্ছে — এরর response এখনো ব্রাউজারে ফেরত যায় (এই
+  লোডের জন্য মাস্ক করা হয় না), শুধু persistent cache-এ স্থায়ী হয়ে
+  বসে না।
+- মক ফেচ দিয়ে ৩টা পরিস্থিতি টেস্ট করা হয়েছে: সফল (200) response
+  cache হয়, error (503) response cache হয় না, আর সবচেয়ে গুরুত্বপূর্ণ
+  — আগে থেকে ভালো একটা cache থাকা অবস্থায় নতুন request এরর দিলে
+  পুরনো ভালো cache অক্ষত থাকে (ওভাররাইট হয় না)। `/tmp`-এ, committed
+  না।
+
+**তার আগের commit (২০২৬-০৮-১৭):** `flushOutbox()`-এ একটা ডিজাইন বাগ ঠিক
 করা হলো — একটা খারাপ (permanently ব্যর্থ হওয়া) outbox এন্ট্রি বাকি সব
 pending এন্ট্রিকে সিঙ্ক হওয়া থেকে আটকে দিত।
 - **সমস্যা:** প্রতিটা outbox এন্ট্রি সিঙ্ক করার সময় error হলে কোড শুধু
@@ -67,20 +91,6 @@ elsewhere" এরর অ্যালার্ট দেখাত — যদি�
 `if (pendingOutbox) cache.clearOutboxEntry(oldPath);` যোগ করা হয়েছে
 (শুধু সফল move/rename-এর কেসেই — delete ব্যর্থ/duplicate কেসে না,
 কারণ তখন পুরনো path GitHub-এ এখনো বৈধভাবে আছে)।
-
-**তার আগের commit (২০২৬-০৮-১৫):** নতুন `prefetchAllFiles()`-এ (background
-prefetch ফিচার, আগের commit-এই যোগ হয়েছিল) একই bug class ফিরে এসেছিল
-যেটা আগে `openTextFile()`-এ একবার ঠিক করা হয়েছিল — অফলাইনে করা এডিট
-এখনো GitHub-এ সিঙ্ক না হয়ে থাকলে (pending outbox entry), prefetch
-তাও fresh network fetch করে `cache.setFile()` দিয়ে সেটা ওভাররাইট করে
-দিতে পারত (বিশেষ করে যদি এর মধ্যে GitHub-এ ফাইলটা অন্য কোথাও বদলে
-যায় — তখন sha না মেলায় prefetch অবশ্যই fetch করত)। যেহেতু prefetch
-ব্যাকগ্রাউন্ডে **সব** ফাইলের জন্য চলে (শুধু একটা খোলার সময় না),
-সুযোগের জানালাটা `openTextFile()`-এর চেয়ে বড়। এখন `openTextFile()`-এর
-মতোই pending outbox থাকলে সেই ফাইল সম্পূর্ণ স্কিপ করা হচ্ছে।
-মক ডেটা দিয়ে isolated টেস্ট করে ৪টা assertion যাচাই করা হয়েছে
-(pending-outbox ফাইল স্কিপ + অস্পৃশ্য, sha-মিলে-যাওয়া ফাইল স্কিপ,
-নতুন ফাইল সঠিকভাবে fetch) — `/tmp`-এ, committed না।
 
 *এই সেকশনে সবসময় সর্বশেষ ৩টা commit-এন্ট্রি রাখা হয় — তার বেশি জমলেই
 সবচেয়ে পুরনোটা(গুলো) `HISTORY.md`-এর "পুরনো সর্বশেষ অবস্থা" সেকশনের

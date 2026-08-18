@@ -10,6 +10,20 @@
 
 ## পুরনো "সর্বশেষ অবস্থা" changelog এন্ট্রি (কালানুক্রমে, নতুন থেকে পুরনো)
 
+**commit (২০২৬-০৮-১৫):** নতুন `prefetchAllFiles()`-এ (background
+prefetch ফিচার, আগের commit-এই যোগ হয়েছিল) একই bug class ফিরে এসেছিল
+যেটা আগে `openTextFile()`-এ একবার ঠিক করা হয়েছিল — অফলাইনে করা এডিট
+এখনো GitHub-এ সিঙ্ক না হয়ে থাকলে (pending outbox entry), prefetch
+তাও fresh network fetch করে `cache.setFile()` দিয়ে সেটা ওভাররাইট করে
+দিতে পারত (বিশেষ করে যদি এর মধ্যে GitHub-এ ফাইলটা অন্য কোথাও বদলে
+যায় — তখন sha না মেলায় prefetch অবশ্যই fetch করত)। যেহেতু prefetch
+ব্যাকগ্রাউন্ডে **সব** ফাইলের জন্য চলে (শুধু একটা খোলার সময় না),
+সুযোগের জানালাটা `openTextFile()`-এর চেয়ে বড়। এখন `openTextFile()`-এর
+মতোই pending outbox থাকলে সেই ফাইল সম্পূর্ণ স্কিপ করা হচ্ছে।
+মক ডেটা দিয়ে isolated টেস্ট করে ৪টা assertion যাচাই করা হয়েছে
+(pending-outbox ফাইল স্কিপ + অস্পৃশ্য, sha-মিলে-যাওয়া ফাইল স্কিপ,
+নতুন ফাইল সঠিকভাবে fetch) — `/tmp`-এ, committed না।
+
 **commit (২০২৬-০৮-১৫):** `js/cache.js`-এর `openDb()`-এ একটা
 reliability বাগ ঠিক করা হলো — এবারও একের-পর-এক বাগ-খোঁজার প্যাটার্নে।
 - **সমস্যা:** `openDb()`-এর `dbPromise` (module-level singleton cache)

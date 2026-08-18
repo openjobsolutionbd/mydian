@@ -8,7 +8,7 @@
 // ক্যাশ activate ধাপে মুছে ফেলবে। শেল ফাইলগুলো এখন network-first — মানে
 // নেট থাকলে সবসময় লেটেস্ট ভার্সন আনবে, শুধু network fail হলে cache fallback।
 
-const BUILD_ID = "2026-08-17-0411"; // ডিপ্লয় করার সময় এই স্ট্রিং বদলে দিলেই cache invalidate হবে
+const BUILD_ID = "2026-08-18-0346"; // ডিপ্লয় করার সময় এই স্ট্রিং বদলে দিলেই cache invalidate হবে
 const CACHE_NAME = `mydian-shell-${BUILD_ID}`;
 
 // গুরুত্বপূর্ণ (বাগ ফিক্স ২০২৬-০৮-০৯): app.js শুরুতেই js/api.js, js/cache.js,
@@ -67,8 +67,20 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          // fetch() শুধু genuine network failure-এই reject করে (অফলাইন,
+          // DNS ব্যর্থতা) — HTTP error status (500, 502, 503 ইত্যাদি,
+          // যেমন deploy চলাকালীন সাময়িক সার্ভার সমস্যা) হলেও promise
+          // resolve-ই করে, শুধু response.ok false থাকে। আগে এখানে
+          // response.ok চেক না করেই সরাসরি cache-এ বসানো হতো — একটা
+          // সাময়িক error response-ও "ভ্যালিড" শেল ফাইল হিসেবে cache-এ
+          // স্থায়ীভাবে বসে যেত (পরের সফল fetch না আসা পর্যন্ত), আর
+          // পরে network fail হয়ে .catch()-এ fallback করার সময় (অথবা
+          // পরের বার সরাসরি অফলাইন থাকলে) আসল অ্যাপ শেলের বদলে সেই
+          // error page-ই cache থেকে দেখানো হতো।
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
           return response;
         })
         .catch(() => caches.match(event.request))
