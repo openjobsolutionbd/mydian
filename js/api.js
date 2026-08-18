@@ -116,6 +116,12 @@ export async function fetchFile(path) {
   const res = await request(`${repoBase()}/contents/${encodeURIPath(path)}`);
   if (!res.ok) throw new Error("Could not read file");
   const data = await res.json();
+  // fetchFileRaw()-এর মতোই একই কারণ — GitHub-এর Contents API বড় ফাইলের
+  // জন্য `content` ফিল্ড খালি রাখে, আগে সরাসরি decode করতে গিয়ে cryptic
+  // এরর ছুঁড়ত।
+  if (!data.content) {
+    throw new Error("This file is too large to open (GitHub's size limit for this view)");
+  }
   const content = decodeBase64Utf8(data.content);
   return { content, sha: data.sha };
 }
@@ -125,6 +131,15 @@ export async function fetchFileRaw(path) {
   const res = await request(`${repoBase()}/contents/${encodeURIPath(path)}`);
   if (!res.ok) throw new Error("Could not read file");
   const data = await res.json();
+  // GitHub-এর Contents API বড় ফাইলের জন্য (~1MB-এর বেশি) `content` ফিল্ড
+  // খালি/অনুপস্থিত রাখে (base64-in-JSON রেসপন্সে সরাসরি বসানো সম্ভব না) —
+  // আগে এখানে সরাসরি `data.content.replace(...)` কল করা হতো, যেটা এমন
+  // হলে "Cannot read properties of undefined" এর মতো একটা cryptic
+  // JavaScript এরর ছুঁড়ত, ইউজারকে বিভ্রান্ত করে (একটা বড় ছবি/PDF খোলার
+  // সময় ঘটতে পারত)। এখন স্পষ্ট, বোধগম্য বার্তা দেওয়া হচ্ছে।
+  if (!data.content) {
+    throw new Error("This file is too large to open (GitHub's size limit for this view)");
+  }
   return { base64: data.content.replace(/\n/g, ""), sha: data.sha };
 }
 

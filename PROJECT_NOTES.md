@@ -26,7 +26,31 @@
 
 ## ০. সর্বশেষ অবস্থা
 
-**সর্বশেষ commit (২০২৬-০৮-১৭):** `sw.js`-এর fetch handler-এ একটা
+**সর্বশেষ commit (২০২৬-০৮-১৮):** `js/api.js`-এর `fetchFile()` আর
+`fetchFileRaw()`-এ একটা edge-case বাগ ঠিক করা হলো — `worker.js`-এর
+GitHub প্রক্সি সেকশন গভীরভাবে রিভিউ করার সময় পাওয়া (এই ফাইলটা 166 থেকে
+253 লাইনে বেড়েছিল, প্রথমবার পুরোটা আবার পড়া হলো)।
+- **সমস্যা:** GitHub-এর Contents API বড় ফাইলের জন্য (~1MB-এর বেশি)
+  `content` ফিল্ড খালি/অনুপস্থিত রাখে (base64-in-JSON রেসপন্সে সরাসরি
+  বসানো সম্ভব না বলে)। দুটো ফাংশনই সরাসরি `data.content.replace(...)`
+  বা `decodeBase64Utf8(data.content)` কল করত — `data.content` খালি
+  হলে এটা "Cannot read properties of undefined" এর মতো একটা cryptic
+  JavaScript এরর ছুঁড়ত, ইউজারকে বিভ্রান্ত করে (বড় ছবি/PDF/নোট খোলার
+  সময় ঘটতে পারত)।
+- **ফিক্স:** `if (!data.content)` চেক যোগ করে স্পষ্ট, বোধগম্য বার্তা
+  ("This file is too large to open...") দেওয়া হচ্ছে দুই জায়গাতেই।
+- মক ডেটা দিয়ে ৩টা কেস টেস্ট করা হয়েছে: স্বাভাবিক ছোট ফাইল ঠিকভাবে
+  content ফেরত দেয়, খালি-স্ট্রিং content-এ স্পষ্ট এরর, `content`
+  ফিল্ড একদমই না থাকলেও স্পষ্ট এরর (আগে যেটা TypeError হতো)। `/tmp`-এ,
+  committed না।
+- worker.js-এর বাকি অংশ (CORS origin-allowlist, rate-limit, repo/operation
+  allowlist) আবার পড়ে দেখা হয়েছে, কোনো নতুন বাগ পাওয়া যায়নি — এই
+  ফাইলের ভেতরের একটা সন্দেহ (raw binary content আসতে পারে বলে
+  `ghRes.text()` ডেটা নষ্ট করতে পারে কিনা) যাচাই করে ভুল প্রমাণিত
+  হয়েছে: GitHub-এর Contents API সবসময় base64-in-JSON রেসপন্স দেয়
+  (raw বাইট না), তাই `.text()` নিরাপদ।
+
+**তার আগের commit (২০২৬-০৮-১৭):** `sw.js`-এর fetch handler-এ একটা
 reliability বাগ ঠিক করা হলো — এই ফাইলটা আগে শুধু `BUILD_ID`-এর জন্যই
 touch করা হয়েছিল, এবারই প্রথম পুরোটা গভীরভাবে পড়া হলো।
 - **সমস্যা:** app shell ফাইলের (index.html, style.css, app.js
@@ -74,23 +98,6 @@ pending এন্ট্রিকে সিঙ্ক হওয়া থেকে
   করার আগেই) আছে বলে নিশ্চিত হওয়া গেছে যে `continue`-এর কারণে কোনো
   ডেটা-লস ঝুঁকি তৈরি হয়নি — শুধু in-flight চেইনিং সামান্য দেরি হতে
   পারে (আগের `break`-এও একই আচরণ ছিল, নতুন কোনো রিগ্রেশন না)।
-
-**তার আগের commit (২০২৬-০৮-১৬):** ইউজারের নির্দেশে ("আরেকটা বাগ খুঁজে
-বের কর") `moveNode()`/`renameFile()`-এর pending-outbox হ্যান্ডলিং ঘুরে
-দেখা হয়েছে। পাওয়া বাগ: দুটো ফাংশনই `pendingOutbox` পড়ে (offline edit
-থাকলে) সেটার content নতুন path-এ পাঠায় ঠিকই, কিন্তু move/rename সফল
-হওয়ার পর পুরনো path-এর outbox entry নিজে **কখনো clear করা হয় না**
-(`cache.clearOutboxEntry()` কোথাও কল হয় না)। `renameFile()`-এর কমেন্টে
-এই ঝুঁকিটা আগে থেকেই বর্ণনা করা ছিল ("outbox entry-টাও চিরকালের জন্য
-অনাথ হয়ে যেত") — কিন্তু আসল fix (content ব্যবহার) শুধু ডেটা-হারানো অংশটাই
-সমাধান করেছিল, orphaned-entry অংশটা বাদ পড়ে গিয়েছিল। ফলাফল: পরে
-`flushOutbox()` সেই stale entry নিয়ে GitHub-এ ইতিমধ্যে-ডিলিট-হওয়া
-path-এ PUT পাঠানোর চেষ্টা করত, ব্যর্থ হয়ে বিভ্রান্তিকর "changed
-elsewhere" এরর অ্যালার্ট দেখাত — যদিও move/rename আসলে সফলই হয়েছিল।
-দুই জায়গাতেই fix: `cache.deleteFile(oldPath)`-এর ঠিক পরে
-`if (pendingOutbox) cache.clearOutboxEntry(oldPath);` যোগ করা হয়েছে
-(শুধু সফল move/rename-এর কেসেই — delete ব্যর্থ/duplicate কেসে না,
-কারণ তখন পুরনো path GitHub-এ এখনো বৈধভাবে আছে)।
 
 *এই সেকশনে সবসময় সর্বশেষ ৩টা commit-এন্ট্রি রাখা হয় — তার বেশি জমলেই
 সবচেয়ে পুরনোটা(গুলো) `HISTORY.md`-এর "পুরনো সর্বশেষ অবস্থা" সেকশনের

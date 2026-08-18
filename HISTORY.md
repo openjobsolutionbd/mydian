@@ -10,6 +10,23 @@
 
 ## পুরনো "সর্বশেষ অবস্থা" changelog এন্ট্রি (কালানুক্রমে, নতুন থেকে পুরনো)
 
+**commit (২০২৬-০৮-১৬):** ইউজারের নির্দেশে ("আরেকটা বাগ খুঁজে
+বের কর") `moveNode()`/`renameFile()`-এর pending-outbox হ্যান্ডলিং ঘুরে
+দেখা হয়েছে। পাওয়া বাগ: দুটো ফাংশনই `pendingOutbox` পড়ে (offline edit
+থাকলে) সেটার content নতুন path-এ পাঠায় ঠিকই, কিন্তু move/rename সফল
+হওয়ার পর পুরনো path-এর outbox entry নিজে **কখনো clear করা হয় না**
+(`cache.clearOutboxEntry()` কোথাও কল হয় না)। `renameFile()`-এর কমেন্টে
+এই ঝুঁকিটা আগে থেকেই বর্ণনা করা ছিল ("outbox entry-টাও চিরকালের জন্য
+অনাথ হয়ে যেত") — কিন্তু আসল fix (content ব্যবহার) শুধু ডেটা-হারানো অংশটাই
+সমাধান করেছিল, orphaned-entry অংশটা বাদ পড়ে গিয়েছিল। ফলাফল: পরে
+`flushOutbox()` সেই stale entry নিয়ে GitHub-এ ইতিমধ্যে-ডিলিট-হওয়া
+path-এ PUT পাঠানোর চেষ্টা করত, ব্যর্থ হয়ে বিভ্রান্তিকর "changed
+elsewhere" এরর অ্যালার্ট দেখাত — যদিও move/rename আসলে সফলই হয়েছিল।
+দুই জায়গাতেই fix: `cache.deleteFile(oldPath)`-এর ঠিক পরে
+`if (pendingOutbox) cache.clearOutboxEntry(oldPath);` যোগ করা হয়েছে
+(শুধু সফল move/rename-এর কেসেই — delete ব্যর্থ/duplicate কেসে না,
+কারণ তখন পুরনো path GitHub-এ এখনো বৈধভাবে আছে)।
+
 **commit (২০২৬-০৮-১৫):** নতুন `prefetchAllFiles()`-এ (background
 prefetch ফিচার, আগের commit-এই যোগ হয়েছিল) একই bug class ফিরে এসেছিল
 যেটা আগে `openTextFile()`-এ একবার ঠিক করা হয়েছিল — অফলাইনে করা এডিট
