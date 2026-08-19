@@ -741,14 +741,25 @@ function setSaveIndicator(state, detail = "") {
 let outboxFlushing = false;
 
 async function flushOutbox() {
+  // TOCTOU রেস কন্ডিশন এড়াতে flag-টা প্রথম `await`-এর *আগেই* সেট করা
+  // হচ্ছে — আগে এখানে `if (outboxFlushing) return;` চেক করার পর
+  // `await cache.getAllOutboxEntries()` কল হতো, তারপর flag সেট হতো।
+  // JS single-threaded হলেও `await` ইভেন্ট লুপে control ছেড়ে দেয় —
+  // তাই `flushOutbox()` প্রায় একই সময়ে দুইবার কল হলে (৫টা ভিন্ন জায়গা
+  // থেকে trigger হয়: app লোড, "online" ইভেন্ট, ফাইল খোলা, move/rename)
+  // দ্বিতীয় কলটা প্রথমটার `await` শেষ হওয়ার আগেই একই flag "false" দেখে
+  // guard পেরিয়ে যেতে পারত — ঠিক সেই জিনিসটাই ঘটতে পারত যেটা এই
+  // guard-এর মূল উদ্দেশ্য ছিল আটকানো (একই ফাইলে দুটো সমান্তরাল PUT,
+  // ভুল sha দিয়ে একে অপরকে 409 দিয়ে ব্যর্থ করা)।
   if (outboxFlushing) return;
-  const entries = await cache.getAllOutboxEntries();
-  if (!entries.length) {
-    updatePendingBadge();
-    return;
-  }
   outboxFlushing = true;
   try {
+    const entries = await cache.getAllOutboxEntries();
+    if (!entries.length) {
+      // updatePendingBadge() এখানে আলাদা করে কল করার দরকার নেই — নিচের
+      // finally ব্লক সবসময় (এই early-return সহ) সেটা চালায়
+      return;
+    }
     for (const entry of entries) {
       // বর্তমানে খোলা ফাইলের জন্য যদি সাধারণ সেভ-পাইপলাইন (flushSave)
       // ইতিমধ্যে in-flight/queued থাকে, তাহলে এখানে সমান্তরালে আরেকটা PUT
