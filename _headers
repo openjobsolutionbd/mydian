@@ -1,11 +1,42 @@
 # Cloudflare Pages headers
-# sw.js এবং index.html কখনো browser/CDN HTTP cache-এ আটকে থাকতে পারবে না —
-# এতে নতুন deploy হলে সাথে সাথেই নতুন service worker detect হবে।
+# sw.js, index.html, style.css, app.js, js/* — এই ফাইলগুলো কখনো browser/CDN
+# HTTP cache-এ আটকে থাকতে পারবে না। sw.js নিজে "network-first" ফেচ করে
+# ঠিকই, কিন্তু সেই fetch() যা পায় সেটা তো Cloudflare-এর edge cache-ই
+# ঠিক করে দেয় — আর Cloudflare-এর নিজস্ব ডকুমেন্টেশন বলছে নতুন deploy
+# হওয়ার পরও asset কোনো কোনো data center-এ এক সপ্তাহ পর্যন্ত পুরনো থেকে
+# যেতে পারে (এই ফাইলগুলোতে no-cache না থাকলে)। এই পুরো অ্যাপটা এত ছোট
+# (কয়েক KB) যে CDN caching-এর পারফরম্যান্স সুবিধাটা এখানে গুরুত্বপূর্ণ
+# না — bug fix সাথে সাথে সব ইউজারের কাছে পৌঁছানোটাই বেশি জরুরি।
 
 /sw.js
   Cache-Control: no-cache, no-store, must-revalidate
 
 /index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/style.css
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/app.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/js/api.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/js/cache.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/js/tree.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+# js/editor.js ইচ্ছাকৃতভাবে এই তালিকায় নেই — এটা ৫১৬KB বান্ডলড/মিনিফায়েড
+# CodeMirror লাইব্রেরি, কালেভদ্রে বদলায় (সোর্স কোড না, vendor bundle)।
+# no-store করলে প্রতিবার পেজ লোডে পুরো ফাইলটা আবার ডাউনলোড হতো — মোবাইল
+# ডেটার বড় অপচয়। এটা যদি কখনো সত্যিই বদলাতে হয় (যা বিরল), sw.js-এর
+# BUILD_ID bump করলেই service worker-এর নিজস্ব cache invalidate হয়ে যাবে
+# (এই ফাইলগুলো SHELL_FILES-এর অংশ), যথেষ্ট।
+
+/manifest.json
   Cache-Control: no-cache, no-store, must-revalidate
 
 /

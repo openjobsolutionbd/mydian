@@ -26,7 +26,28 @@
 
 ## ০. সর্বশেষ অবস্থা
 
-**সর্বশেষ commit (২০২৬-০৮-১৮):** `flushOutbox()`-এ একটা race condition
+**সর্বশেষ commit (২০২৬-০৮-২০): Cloudflare-এর edge cache নতুন deploy হওয়ার
+পরও পুরনো style.css/app.js সার্ভ করে দিতে পারত — `_headers` ফাইলে ফাঁক
+ছিল।** ইউজার একটা স্ক্রিনশট দিয়ে দেখালেন নোট খোলার সময় লেখা মাঝপথে কেটে
+যাচ্ছে, নিচে বাকি অংশ ফাঁকা — অথচ সোর্স কোডে এই ঠিক এই বাগটাই আগেই ফিক্স
+করা ছিল (`.editor-area`-এ `min-height: 0`, commit `1a32426`)। খতিয়ে দেখা
+গেল: `_headers` ফাইলে শুধু `sw.js`/`index.html`-এর জন্য
+`no-cache, no-store, must-revalidate` ছিল, `style.css`/`app.js`-এর
+জন্য ছিল না। `sw.js`-এর service worker যদিও "network-first" ফেচ করে,
+সেই `fetch()` আসলে Cloudflare-এর edge cache-ই যা দেয় সেটাই পায় —
+Cloudflare-এর নিজস্ব ডকুমেন্টেশন অনুযায়ী নতুন deploy-এর পরও কোনো কোনো
+data center-এ asset এক সপ্তাহ পর্যন্ত পুরনো থেকে যেতে পারে যদি origin
+থেকে explicit no-cache না বলা থাকে। এখন `style.css`, `app.js`,
+`js/api.js`, `js/cache.js`, `js/tree.js`, `manifest.json` — সবগুলোতে
+একই no-cache নিয়ম যোগ করা হয়েছে (`js/editor.js` ইচ্ছাকৃতভাবে বাদ —
+৫১৬KB vendor bundle, কালেভদ্রে বদলায়, no-store করলে প্রতি লোডে পুরোটা
+আবার ডাউনলোড হতো — মোবাইল ডেটার অপচয়; বদলালে BUILD_ID bump-এই যথেষ্ট,
+সেটা SHELL_FILES-এর অংশ)। **ইউজারকে একবার অ্যাপ পুরোপুরি বন্ধ করে আবার
+খুলতে বলা হয়েছে** — এই ফিক্স ভবিষ্যতের deploy-গুলো সাথে সাথে সবার কাছে
+পৌঁছানো নিশ্চিত করে, কিন্তু তাদের ডিভাইসে আগে থেকে আটকে থাকা পুরনো
+কপিটা retroactively বদলাবে না।
+
+**তার আগের commit (২০২৬-০৮-১৮):** `flushOutbox()`-এ একটা race condition
 (TOCTOU) বাগ ঠিক করা হলো — `outboxFlushing` guard flag থাকা সত্ত্বেও
 প্রায়-একই-সময়ে দুইবার কল হলে দুটোই ভেতরে ঢুকে যেতে পারত।
 - **সমস্যা:** `if (outboxFlushing) return;` চেক করার পর
