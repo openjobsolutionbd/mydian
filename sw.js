@@ -8,7 +8,7 @@
 // ক্যাশ activate ধাপে মুছে ফেলবে। শেল ফাইলগুলো এখন network-first — মানে
 // নেট থাকলে সবসময় লেটেস্ট ভার্সন আনবে, শুধু network fail হলে cache fallback।
 
-const BUILD_ID = "2026-08-21-0552"; // ডিপ্লয় করার সময় এই স্ট্রিং বদলে দিলেই cache invalidate হবে
+const BUILD_ID = "2026-08-22-0300"; // ডিপ্লয় করার সময় এই স্ট্রিং বদলে দিলেই cache invalidate হবে
 const CACHE_NAME = `mydian-shell-${BUILD_ID}`;
 
 // গুরুত্বপূর্ণ (বাগ ফিক্স ২০২৬-০৮-০৯): app.js শুরুতেই js/api.js, js/cache.js,

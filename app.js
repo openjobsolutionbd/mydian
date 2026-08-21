@@ -837,7 +837,22 @@ async function flushOutbox() {
 async function updatePendingBadge() {
   const entries = await cache.getAllOutboxEntries();
   if (entries.length > 0) {
-    setSyncStatus("offline", `${entries.length} change${entries.length > 1 ? "s" : ""} pending sync`);
+    const count = `${entries.length} change${entries.length > 1 ? "s" : ""}`;
+    if (navigator.onLine) {
+      // নেট সংযোগ আছে (`navigator.onLine` true) অথচ কিছু এন্ট্রি এখনো
+      // সিঙ্ক হয়নি — এটা connectivity সমস্যা না (হতে পারে কোনো ফাইলে
+      // স্থায়ী সমস্যা, যেমন সেটা remote-এ ডিলিট হয়ে গেছে)। আগে এই
+      // ক্ষেত্রেও নিঃশর্তে "offline" (amber) ব্যাজ দেখানো হতো — ইউজার
+      // ভাবতে পারতেন নেট নেই, যদিও আসলে ছিল। CSS-এ আগে থেকেই একটা
+      // `.error` স্টাইল (লাল) সংজ্ঞায়িত ছিল কিন্তু কখনো ব্যবহার হতো
+      // না — এখন সেটাই ব্যবহার করা হচ্ছে। কোনো automatic periodic
+      // retry নেই (শুধু অ্যাপ লোড/online ইভেন্ট/ফাইল খোলা/move/rename-এ
+      // ট্রিগার হয়), তাই বার্তায় মিথ্যা প্রতিশ্রুতি না দিয়ে সরাসরি
+      // কী করলে রিট্রাই হবে সেটাই বলা হচ্ছে।
+      setSyncStatus("error", `${count} pending sync — open the file or reload to retry`);
+    } else {
+      setSyncStatus("offline", `${count} pending sync`);
+    }
   } else if (navigator.onLine) {
     setSyncStatus("online", "Synced");
   }

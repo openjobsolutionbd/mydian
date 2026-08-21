@@ -10,6 +10,76 @@
 
 ## পুরনো "সর্বশেষ অবস্থা" changelog এন্ট্রি (কালানুক্রমে, নতুন থেকে পুরনো)
 
+**commit (২০২৬-০৮-১৮):** `flushOutbox()`-এ একটা race condition
+(TOCTOU) বাগ ঠিক করা হলো — `outboxFlushing` guard flag থাকা সত্ত্বেও
+প্রায়-একই-সময়ে দুইবার কল হলে দুটোই ভেতরে ঢুকে যেতে পারত।
+- **সমস্যা:** `if (outboxFlushing) return;` চেক করার পর
+  `await cache.getAllOutboxEntries()` কল হতো, *তারপর* flag সেট হতো।
+  IndexedDB read asynchronous হওয়ায় এই `await`-টা event loop-এ control
+  ছেড়ে দেয় — তাই `flushOutbox()` ৫টা ভিন্ন জায়গা থেকে (app লোড,
+  "online" ইভেন্ট, ফাইল খোলা, move/rename) প্রায় একই সময়ে দুইবার কল
+  হলে দ্বিতীয় কলটা প্রথমটার await শেষ হওয়ার আগেই flag এখনও "false"
+  দেখে guard পেরিয়ে যেতে পারত — ঠিক যে জিনিসটা এই guard-এর মূল
+  উদ্দেশ্য ছিল আটকানো (একই ফাইলে দুটো সমান্তরাল PUT, ভুল sha দিয়ে
+  একে অপরকে 409 দিয়ে ব্যর্থ করা)।
+- **ফিক্স:** `outboxFlushing = true` এখন প্রথম `await`-এর ঠিক আগেই
+  (synchronously) সেট করা হয়, guard চেকের পরপরই। বাকি সব লজিক
+  `try { ... } finally { outboxFlushing = false; }`-এ মোড়ানো, যাতে
+  early-return বা এরর যেকোনো পথেই flag ঠিকভাবে রিসেট হয়।
+  `entries.length === 0` কেসে আগের ডুপ্লিকেট `updatePendingBadge()`
+  কলও (এখন `finally`-তে একবারই চলে) সরিয়ে ফেলা হয়েছে।
+- মক টাইমিং দিয়ে (৫ms simulated IndexedDB delay) পুরনো বনাম নতুন
+  আচরণ পাশাপাশি দুইবার একসাথে কল করে টেস্ট করা হয়েছে — পুরনো আচরণে
+  ২টা কল একসাথে ভেতরে ঢুকত (রেস প্রমাণিত), নতুন আচরণে সবসময় সর্বোচ্চ
+  ১টা। `/tmp`-এ, committed না।
+**তার আগের commit (২০২৬-০৮-১৮):** `js/api.js`-এর `fetchFile()` আর
+`fetchFileRaw()`-এ একটা edge-case বাগ ঠিক করা হলো — `worker.js`-এর
+GitHub প্রক্সি সেকশন গভীরভাবে রিভিউ করার সময় পাওয়া (এই ফাইলটা 166 থেকে
+253 লাইনে বেড়েছিল, প্রথমবার পুরোটা আবার পড়া হলো)।
+- **সমস্যা:** GitHub-এর Contents API বড় ফাইলের জন্য (~1MB-এর বেশি)
+  `content` ফিল্ড খালি/অনুপস্থিত রাখে (base64-in-JSON রেসপন্সে সরাসরি
+  বসানো সম্ভব না বলে)। দুটো ফাংশনই সরাসরি `data.content.replace(...)`
+  বা `decodeBase64Utf8(data.content)` কল করত — `data.content` খালি
+  হলে এটা "Cannot read properties of undefined" এর মতো একটা cryptic
+  JavaScript এরর ছুঁড়ত, ইউজারকে বিভ্রান্ত করে (বড় ছবি/PDF/নোট খোলার
+  সময় ঘটতে পারত)।
+- **ফিক্স:** `if (!data.content)` চেক যোগ করে স্পষ্ট, বোধগম্য বার্তা
+  ("This file is too large to open...") দেওয়া হচ্ছে দুই জায়গাতেই।
+- মক ডেটা দিয়ে ৩টা কেস টেস্ট করা হয়েছে: স্বাভাবিক ছোট ফাইল ঠিকভাবে
+  content ফেরত দেয়, খালি-স্ট্রিং content-এ স্পষ্ট এরর, `content`
+  ফিল্ড একদমই না থাকলেও স্পষ্ট এরর (আগে যেটা TypeError হতো)। `/tmp`-এ,
+  committed না।
+- worker.js-এর বাকি অংশ (CORS origin-allowlist, rate-limit, repo/operation
+  allowlist) আবার পড়ে দেখা হয়েছে, কোনো নতুন বাগ পাওয়া যায়নি — এই
+  ফাইলের ভেতরের একটা সন্দেহ (raw binary content আসতে পারে বলে
+  `ghRes.text()` ডেটা নষ্ট করতে পারে কিনা) যাচাই করে ভুল প্রমাণিত
+  হয়েছে: GitHub-এর Contents API সবসময় base64-in-JSON রেসপন্স দেয়
+  (raw বাইট না), তাই `.text()` নিরাপদ।
+
+**commit (২০২৬-০৮-১৮):** `js/api.js`-এর `fetchFile()` আর
+`fetchFileRaw()`-এ একটা edge-case বাগ ঠিক করা হলো — `worker.js`-এর
+GitHub প্রক্সি সেকশন গভীরভাবে রিভিউ করার সময় পাওয়া (এই ফাইলটা 166 থেকে
+253 লাইনে বেড়েছিল, প্রথমবার পুরোটা আবার পড়া হলো)।
+- **সমস্যা:** GitHub-এর Contents API বড় ফাইলের জন্য (~1MB-এর বেশি)
+  `content` ফিল্ড খালি/অনুপস্থিত রাখে (base64-in-JSON রেসপন্সে সরাসরি
+  বসানো সম্ভব না বলে)। দুটো ফাংশনই সরাসরি `data.content.replace(...)`
+  বা `decodeBase64Utf8(data.content)` কল করত — `data.content` খালি
+  হলে এটা "Cannot read properties of undefined" এর মতো একটা cryptic
+  JavaScript এরর ছুঁড়ত, ইউজারকে বিভ্রান্ত করে (বড় ছবি/PDF/নোট খোলার
+  সময় ঘটতে পারত)।
+- **ফিক্স:** `if (!data.content)` চেক যোগ করে স্পষ্ট, বোধগম্য বার্তা
+  ("This file is too large to open...") দেওয়া হচ্ছে দুই জায়গাতেই।
+- মক ডেটা দিয়ে ৩টা কেস টেস্ট করা হয়েছে: স্বাভাবিক ছোট ফাইল ঠিকভাবে
+  content ফেরত দেয়, খালি-স্ট্রিং content-এ স্পষ্ট এরর, `content`
+  ফিল্ড একদমই না থাকলেও স্পষ্ট এরর (আগে যেটা TypeError হতো)। `/tmp`-এ,
+  committed না।
+- worker.js-এর বাকি অংশ (CORS origin-allowlist, rate-limit, repo/operation
+  allowlist) আবার পড়ে দেখা হয়েছে, কোনো নতুন বাগ পাওয়া যায়নি — এই
+  ফাইলের ভেতরের একটা সন্দেহ (raw binary content আসতে পারে বলে
+  `ghRes.text()` ডেটা নষ্ট করতে পারে কিনা) যাচাই করে ভুল প্রমাণিত
+  হয়েছে: GitHub-এর Contents API সবসময় base64-in-JSON রেসপন্স দেয়
+  (raw বাইট না), তাই `.text()` নিরাপদ।
+
 **commit (২০২৬-০৮-১৭):** `sw.js`-এর fetch handler-এ একটা
 reliability বাগ ঠিক করা হলো — এই ফাইলটা আগে শুধু `BUILD_ID`-এর জন্যই
 touch করা হয়েছিল, এবারই প্রথম পুরোটা গভীরভাবে পড়া হলো।
