@@ -26,9 +26,34 @@
 
 ## ০. সর্বশেষ অবস্থা
 
-**সর্বশেষ commit (২০২৬-০৮-২০): Cloudflare-এর edge cache নতুন deploy হওয়ার
-পরও পুরনো style.css/app.js সার্ভ করে দিতে পারত — `_headers` ফাইলে ফাঁক
-ছিল।** ইউজার একটা স্ক্রিনশট দিয়ে দেখালেন নোট খোলার সময় লেখা মাঝপথে কেটে
+**সর্বশেষ commit (২০২৬-০৮-২১): ১MB-এর বেশি সাইজের নোট/ফাইল খুলতে না
+পারার আসল কারণ ঠিক করা হলো (raw content fallback)।** ইউজার একটা
+স্ক্রিনশট দিয়ে দেখালেন `prompts.md` খুলতে গিয়ে "Could not load editor:
+This file is too large to open" এরর দেখাচ্ছে। খতিয়ে দেখা গেল —
+GitHub-এর Contents API-এর ডিফল্ট (JSON+base64) ফরম্যাট ১MB-এর বেশি
+ফাইলের জন্য `content` ফিল্ড ফাঁকা রাখে (এটা GitHub-এর নিজস্ব ডকুমেন্টেড
+সীমা, কোনো বাগ না) — GitHub নিজেই এই ক্ষেত্রে `.raw` মিডিয়া টাইপ ব্যবহার
+করতে বলে, যেটা ১০০MB পর্যন্ত ফাইল সাপোর্ট করে। এতদিন এই ক্ষেত্রে শুধু
+একটা এরর মেসেজ দেখানো হতো, প্রকৃত fallback ছিল না।
+
+এখন যোগ করা হয়েছে:
+- `worker/worker.js`: `?raw=1` দিয়ে অনুরোধ এলে GitHub-কে
+  `Accept: application/vnd.github.raw` দিয়ে অনুরোধ করে, আর সেই
+  raw bytes response সরাসরি (JSON-wrap না করে) pass-through করে।
+- `js/api.js`: `fetchFile()`/`fetchFileRaw()`-এ — `content` ফাঁকা পেলে
+  (১MB+) প্রথমে সেই মূল রেসপন্স থেকেই `sha` নেওয়া হয় (raw রেসপন্সে sha
+  থাকে না), তারপর `?raw=1` দিয়ে দ্বিতীয় request করে আসল content আনা হয়।
+  ছবি/PDF-এর জন্য arrayBuffer থেকে base64-এ কনভার্ট করা হয় (৮KB chunk-এ,
+  বড় ফাইলে স্ট্যাক ওভারফ্লো এড়াতে) — Node দিয়ে ২MB ডেটায় round-trip
+  টেস্ট করে যাচাই করা হয়েছে। ১০০MB-এর বেশি হলে (GitHub-এর নিজস্ব
+  সর্বোচ্চ সীমা) এখনো স্পষ্ট এরর দেখাবে, কারণ GitHub-ই সাপোর্ট করে না।
+- `eslint.config.mjs`: worker.js-এর globals-এ `URLSearchParams` যোগ
+  (Cloudflare Workers-এ standard Web API, শুধু lint config-এ মিসিং
+  ছিল — verify.sh প্রথমবার এটা ধরেছে, ঠিক এই কারণেই এই চেকটা আছে)।
+
+**তার আগের commit (২০২৬-০৮-২০):** Cloudflare-এর edge cache নতুন deploy
+হওয়ার পরও পুরনো style.css/app.js সার্ভ করে দিতে পারত — `_headers`
+ফাইলে ফাঁক ছিল। ইউজার একটা স্ক্রিনশট দিয়ে দেখালেন নোট খোলার সময় লেখা মাঝপথে কেটে
 যাচ্ছে, নিচে বাকি অংশ ফাঁকা — অথচ সোর্স কোডে এই ঠিক এই বাগটাই আগেই ফিক্স
 করা ছিল (`.editor-area`-এ `min-height: 0`, commit `1a32426`)। খতিয়ে দেখা
 গেল: `_headers` ফাইলে শুধু `sw.js`/`index.html`-এর জন্য
@@ -93,30 +118,6 @@ GitHub প্রক্সি সেকশন গভীরভাবে রিভ�
   `ghRes.text()` ডেটা নষ্ট করতে পারে কিনা) যাচাই করে ভুল প্রমাণিত
   হয়েছে: GitHub-এর Contents API সবসময় base64-in-JSON রেসপন্স দেয়
   (raw বাইট না), তাই `.text()` নিরাপদ।
-
-**তার আগের commit (২০২৬-০৮-১৭):** `sw.js`-এর fetch handler-এ একটা
-reliability বাগ ঠিক করা হলো — এই ফাইলটা আগে শুধু `BUILD_ID`-এর জন্যই
-touch করা হয়েছিল, এবারই প্রথম পুরোটা গভীরভাবে পড়া হলো।
-- **সমস্যা:** app shell ফাইলের (index.html, style.css, app.js
-  ইত্যাদি) জন্য network-first কৌশল — network থেকে response এলেই
-  `response.ok` চেক না করে সরাসরি cache-এ বসিয়ে দেওয়া হতো। `fetch()`
-  শুধু genuine network failure-এ (অফলাইন, DNS ব্যর্থতা) reject করে —
-  HTTP error status (500/502/503, যেমন deploy চলাকালীন সাময়িক সার্ভার
-  সমস্যা) হলেও promise resolve-ই করে (`response.ok` শুধু false থাকে)।
-  ফলে একটা সাময়িক এরর response-ও "ভ্যালিড" শেল ফাইল হিসেবে cache-এ
-  স্থায়ীভাবে বসে যেতে পারত — এবং পরে network fail হয়ে `.catch()`-এ
-  fallback করার সময় (বা সরাসরি অফলাইন থাকলে) আসল অ্যাপ শেলের বদলে
-  সেই ভাঙা error page-ই দেখানো হতো, যতক্ষণ না পরের একটা সফল fetch
-  সেটা আবার ওভাররাইট করে।
-- **ফিক্স:** `if (response.ok)` চেক যোগ করে শুধু সফল (2xx) response-ই
-  cache-এ বসানো হচ্ছে — এরর response এখনো ব্রাউজারে ফেরত যায় (এই
-  লোডের জন্য মাস্ক করা হয় না), শুধু persistent cache-এ স্থায়ী হয়ে
-  বসে না।
-- মক ফেচ দিয়ে ৩টা পরিস্থিতি টেস্ট করা হয়েছে: সফল (200) response
-  cache হয়, error (503) response cache হয় না, আর সবচেয়ে গুরুত্বপূর্ণ
-  — আগে থেকে ভালো একটা cache থাকা অবস্থায় নতুন request এরর দিলে
-  পুরনো ভালো cache অক্ষত থাকে (ওভাররাইট হয় না)। `/tmp`-এ, committed
-  না।
 
 *এই সেকশনে সবসময় সর্বশেষ ৩টা commit-এন্ট্রি রাখা হয় — তার বেশি জমলেই
 সবচেয়ে পুরনোটা(গুলো) `HISTORY.md`-এর "পুরনো সর্বশেষ অবস্থা" সেকশনের

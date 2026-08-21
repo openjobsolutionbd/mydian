@@ -222,13 +222,27 @@ export default {
         return json({ error: "This GitHub API operation is not allowed through this proxy" }, 403, cors);
       }
 
-      const githubUrl = `${GITHUB_API}${githubPath}${url.search}`;
+      // GitHub-এর Contents API ডিফল্ট (JSON+base64) ফরম্যাটে ১MB-এর বেশি
+      // ফাইলের content ফাঁকা রাখে — ১MB থেকে ১০০MB পর্যন্ত ফাইল পেতে হলে
+      // .raw মিডিয়া টাইপ চাইতে হয় (GitHub docs: "requests for file
+      // contents larger than 1 MB must include the .raw custom media
+      // type")। ব্রাউজার থেকে ?raw=1 এলে (শুধু GET-এ, contents op-এর
+      // জন্যই প্রযোজ্য) GitHub-কে Accept: application/vnd.github.raw
+      // দিয়ে অনুরোধ করা হয়, আর GitHub-এর রেসপন্সও তখন JSON না — সরাসরি
+      // ফাইলের raw bytes, তাই সেটাও body-parsing/wrap ছাড়াই
+      // pass-through করা হচ্ছে।
+      const isRawRequest = request.method === "GET" && isContentsOp && url.searchParams.get("raw") === "1";
+
+      const forwardParams = new URLSearchParams(url.search);
+      forwardParams.delete("raw");
+      const forwardSearch = forwardParams.toString();
+      const githubUrl = `${GITHUB_API}${githubPath}${forwardSearch ? "?" + forwardSearch : ""}`;
 
       const init = {
         method: request.method,
         headers: {
           Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-          Accept: "application/vnd.github+json",
+          Accept: isRawRequest ? "application/vnd.github.raw" : "application/vnd.github+json",
           "X-GitHub-Api-Version": "2022-11-28",
           "User-Agent": "personal-notes-app",
         },
@@ -240,6 +254,22 @@ export default {
       }
 
       const ghRes = await fetch(githubUrl, init);
+
+      if (isRawRequest) {
+        // raw মোডে GitHub JSON না, ফাইলের raw bytes সরাসরি পাঠায় — তাই
+        // .text()/JSON-wrap না করে arrayBuffer হিসেবে হুবহু pass-through
+        // করা হচ্ছে। sha এখানে থাকে না (সেটা caller আলাদাভাবে normal
+        // request থেকে আগেই পেয়ে গেছে ধরে নেওয়া হয়, js/api.js দ্রষ্টব্য)।
+        const ghBody = await ghRes.arrayBuffer();
+        return new Response(ghBody, {
+          status: ghRes.status,
+          headers: {
+            "Content-Type": ghRes.headers.get("Content-Type") || "application/octet-stream",
+            ...cors,
+          },
+        });
+      }
+
       const ghBody = await ghRes.text();
 
       return new Response(ghBody, {

@@ -61,6 +61,7 @@ export default [
         crypto: "readonly",
         console: "readonly",
         URL: "readonly",
+        URLSearchParams: "readonly",
         btoa: "readonly",
         atob: "readonly",
         TextEncoder: "readonly",

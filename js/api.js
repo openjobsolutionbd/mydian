@@ -116,14 +116,32 @@ export async function fetchFile(path) {
   const res = await request(`${repoBase()}/contents/${encodeURIPath(path)}`);
   if (!res.ok) throw new Error("Could not read file");
   const data = await res.json();
-  // fetchFileRaw()-এর মতোই একই কারণ — GitHub-এর Contents API বড় ফাইলের
-  // জন্য `content` ফিল্ড খালি রাখে, আগে সরাসরি decode করতে গিয়ে cryptic
-  // এরর ছুঁড়ত।
   if (!data.content) {
-    throw new Error("This file is too large to open (GitHub's size limit for this view)");
+    // GitHub-এর Contents API ডিফল্ট (JSON+base64) ফরম্যাটে ১MB-এর বেশি
+    // ফাইলের জন্য content ফাঁকা/অনুপস্থিত রাখে — কিন্তু sha/size ইত্যাদি
+    // metadata ঠিকই থাকে। আগে এখানেই সরাসরি "too large" এরর ছুঁড়ে দেওয়া
+    // হতো (worker-এ raw মোড যোগ হওয়ার আগে সেটাই একমাত্র উপায় ছিল)। এখন
+    // GitHub-এর নিজস্ব সীমার (১০০MB) মধ্যে হলে .raw মিডিয়া টাইপ দিয়ে
+    // আলাদাভাবে আসল content আনা হয় — sha এই প্রথম রেসপন্স (data.sha)
+    // থেকেই নেওয়া হচ্ছে, raw রেসপন্সে sha থাকে না বলে।
+    if (data.size && data.size > 100 * 1024 * 1024) {
+      throw new Error("This file is too large to open (over GitHub's 100MB limit)");
+    }
+    const content = await fetchRawText(path);
+    return { content, sha: data.sha };
   }
   const content = decodeBase64Utf8(data.content);
   return { content, sha: data.sha };
+}
+
+// ১MB-এর বেশি ফাইলের জন্য fetchFile()-এর fallback — worker-কে ?raw=1
+// দিয়ে বলা হয়, ও GitHub-কে .raw মিডিয়া টাইপে অনুরোধ করে (১০০MB পর্যন্ত
+// সাপোর্ট করে, base64+JSON-এর ১MB সীমা এখানে প্রযোজ্য না)। রেসপন্স
+// সরাসরি ফাইলের raw টেক্সট, JSON/base64 না — তাই আলাদা decode লাগে না।
+async function fetchRawText(path) {
+  const res = await request(`${repoBase()}/contents/${encodeURIPath(path)}?raw=1`);
+  if (!res.ok) throw new Error("Could not read file");
+  return res.text();
 }
 
 // একটা ফাইলের raw binary/base64 content আনে (ছবি/PDF দেখানোর জন্য)
@@ -138,9 +156,32 @@ export async function fetchFileRaw(path) {
   // JavaScript এরর ছুঁড়ত, ইউজারকে বিভ্রান্ত করে (একটা বড় ছবি/PDF খোলার
   // সময় ঘটতে পারত)। এখন স্পষ্ট, বোধগম্য বার্তা দেওয়া হচ্ছে।
   if (!data.content) {
-    throw new Error("This file is too large to open (GitHub's size limit for this view)");
+    // fetchFile()-এর মতোই একই কারণ ও সমাধান — GitHub-এর ১০০MB পর্যন্ত
+    // সাপোর্ট করা .raw মিডিয়া টাইপ দিয়ে আসল bytes এনে base64-এ কনভার্ট
+    // করা হচ্ছে (showMediaPreview() base64/data-URL আশা করে)।
+    if (data.size && data.size > 100 * 1024 * 1024) {
+      throw new Error("This file is too large to open (over GitHub's 100MB limit)");
+    }
+    const base64 = await fetchRawBase64(path);
+    return { base64, sha: data.sha };
   }
   return { base64: data.content.replace(/\n/g, ""), sha: data.sha };
+}
+
+// fetchFileRaw()-এর fallback — worker থেকে raw bytes (arrayBuffer) এনে
+// browser-এই base64-এ কনভার্ট করে (বড় ফাইলে chunk করে করা হচ্ছে, নাহলে
+// String.fromCharCode(...bigArray) স্ট্যাক ওভারফ্লো করতে পারে)।
+async function fetchRawBase64(path) {
+  const res = await request(`${repoBase()}/contents/${encodeURIPath(path)}?raw=1`);
+  if (!res.ok) throw new Error("Could not read file");
+  const buf = await res.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  const CHUNK = 8192;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 
 // ফাইল তৈরি বা আপডেট (create/update — GitHub API একই endpoint ব্যবহার করে)
